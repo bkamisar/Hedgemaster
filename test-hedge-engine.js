@@ -8,6 +8,7 @@ const {
   solveHedge,
   roundStake,
   hedgeThreshold,
+  analyze,
 } = require('./hedge-engine.js');
 
 let passed = 0;
@@ -324,6 +325,92 @@ ok('impossible threshold returns null',
 const justOver = withSibling + 0.05;
 const rescued = solveHedge({ payout: R4, stake: 10, decimalOdds: [justOver, c110] });
 ok('beating the threshold produces a guarantee', rescued.floor > 0);
+
+// --- Task 8: analyze() ---
+const legsWonWonLiveLive = [
+  { label: 'Chiefs ML', americanOdds: -110, status: 'won' },
+  { label: 'Over 44.5', americanOdds: -110, status: 'won' },
+  { label: 'Bills ML', americanOdds: -110, status: 'live', hedgeAmericanOdds: 150 },
+  { label: 'Eagles ML', americanOdds: -110, status: 'live', hedgeAmericanOdds: 150 },
+];
+const guaranteed = analyze({ stake: 10, legs: legsWonWonLiveLive });
+ok('verdict is guaranteed', guaranteed.verdict === 'guaranteed');
+near('payout is 132.83', guaranteed.payout, 132.8331, 1e-3);
+ok('floor is positive', guaranteed.floor > 0);
+ok('one hedge per live leg', guaranteed.hedges.length === 2);
+near('hedge stake rounds to 53', guaranteed.hedges[0].stake, 53, 1e-9);
+ok('hedge odds echoed as American', guaranteed.hedges[0].americanOdds === 150);
+ok('scenario table covers 2^k rows', guaranteed.scenarios.length === 4);
+ok('every scenario meets the floor',
+  guaranteed.scenarios.every((s) => s.profit >= guaranteed.floor - 1e-9));
+ok('profitFromHere is profit plus stake',
+  Math.abs(guaranteed.scenarios[0].profitFromHere
+    - (guaranteed.scenarios[0].profit + 10)) < 1e-9);
+
+// Same parlay, -110 hedge prices: above 100%, so do not hedge.
+const noHedgeLegs = legsWonWonLiveLive.map((leg) =>
+  leg.status === 'live' ? { ...leg, hedgeAmericanOdds: -110 } : leg
+);
+const noHedge = analyze({ stake: 10, legs: noHedgeLegs });
+ok('verdict is no-hedge', noHedge.verdict === 'no-hedge');
+ok('no stakes recommended', noHedge.hedges.every((h) => h.stake === 0));
+near('floor is -stake', noHedge.floor, -10, 1e-9);
+ok('implied total is reported above 1', noHedge.impliedTotal > 1);
+
+// Middle regime: two legs at -200 on a $40 stake -> payout 90. One live leg
+// hedged at -400 (decimal 1.25) -> A = 0.8, floor 90*0.2 - 40 = -22, which
+// is no profit but beats the -40 of doing nothing.
+const middleLegs = [
+  { label: 'Leg A', americanOdds: -200, status: 'won' },
+  { label: 'Leg B', americanOdds: -200, status: 'live', hedgeAmericanOdds: -400 },
+];
+const reduces = analyze({ stake: 40, legs: middleLegs });
+ok('verdict is reduces-downside', reduces.verdict === 'reduces-downside');
+ok('still recommends a stake', reduces.hedges[0].stake > 0);
+ok('floor beats not hedging', reduces.floor > -40);
+ok('floor is not a profit', reduces.floor <= 0);
+near('middle regime floor is -22', reduces.floor, -22, 1e-9);
+
+// Thresholds are reported for every live leg.
+ok('threshold per live leg', guaranteed.thresholds.length === 2);
+ok('down-to-one threshold present',
+  typeof guaranteed.thresholds[0].downToOneAmerican === 'number');
+
+// Degenerate: a lost leg kills the parlay.
+const deadLegs = [
+  { label: 'Leg A', americanOdds: -110, status: 'lost' },
+  { label: 'Leg B', americanOdds: -110, status: 'live', hedgeAmericanOdds: 150 },
+];
+const dead = analyze({ stake: 10, legs: deadLegs });
+ok('verdict is dead', dead.verdict === 'dead');
+near('dead floor is -stake', dead.floor, -10, 1e-9);
+ok('dead recommends no hedges', dead.hedges.length === 0);
+
+// Degenerate: everything already won.
+const wonAll = analyze({
+  stake: 10,
+  legs: [{ label: 'Leg A', americanOdds: 150, status: 'won' }],
+});
+ok('verdict is won', wonAll.verdict === 'won');
+near('won floor is payout - stake', wonAll.floor, 15, 1e-9);
+
+// Degenerate: an unhedgeable live leg makes any hedging strictly worse.
+const unhedgeableLegs = [
+  { label: 'Leg A', americanOdds: 150, status: 'live', hedgeAmericanOdds: 150 },
+  { label: 'Leg B', americanOdds: 150, status: 'live', hedgeable: false },
+];
+const unhedgeable = analyze({ stake: 10, legs: unhedgeableLegs });
+ok('unhedgeable leg forces no-hedge', unhedgeable.verdict === 'no-hedge');
+ok('unhedgeable reason is reported', unhedgeable.reason === 'unhedgeable');
+near('unhedgeable floor is -stake', unhedgeable.floor, -10, 1e-9);
+
+// Degenerate: a single-leg "parlay" still works.
+const singleLeg = analyze({
+  stake: 10,
+  legs: [{ label: 'Leg A', americanOdds: 900, status: 'live', hedgeAmericanOdds: -200 }],
+});
+ok('single-leg parlay is guaranteed', singleLeg.verdict === 'guaranteed');
+ok('single-leg has one hedge', singleLeg.hedges.length === 1);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

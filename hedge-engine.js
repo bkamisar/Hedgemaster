@@ -81,6 +81,113 @@ function hedgeThreshold({ payout, stake, otherDecimalOdds }) {
   return 1 / budget;
 }
 
+function analyze({ stake, legs }) {
+  const payout = parlayPayout(stake, legs);
+  const live = legs
+    .map((leg, index) => ({ ...leg, index }))
+    .filter((leg) => leg.status === 'live');
+
+  const base = {
+    payout,
+    stake,
+    impliedTotal: 0,
+    hedges: [],
+    scenarios: [],
+    thresholds: [],
+    totalHedgeStake: 0,
+    reason: null,
+  };
+
+  if (legs.some((leg) => leg.status === 'lost')) {
+    return { ...base, verdict: 'dead', floor: -stake, idealFloor: -stake };
+  }
+
+  if (live.length === 0) {
+    return {
+      ...base,
+      verdict: 'won',
+      floor: payout - stake,
+      idealFloor: payout - stake,
+    };
+  }
+
+  // A leg that cannot be hedged leaves a scenario where it alone misses and
+  // every other hedge stake is simply lost, so any hedging lowers the floor.
+  if (live.some((leg) => leg.hedgeable === false)) {
+    return {
+      ...base,
+      verdict: 'no-hedge',
+      reason: 'unhedgeable',
+      floor: -stake,
+      idealFloor: -stake,
+      hedges: live.map((leg) => ({
+        legIndex: leg.index,
+        label: leg.label,
+        stake: 0,
+        americanOdds: leg.hedgeAmericanOdds ?? null,
+      })),
+    };
+  }
+
+  const decimalOdds = live.map((leg) => americanToDecimal(leg.hedgeAmericanOdds));
+  const solved = solveHedge({ payout, stake, decimalOdds });
+
+  const hedges = live.map((leg, i) => ({
+    legIndex: leg.index,
+    label: leg.label,
+    stake: roundStake(solved.stakes[i]),
+    americanOdds: leg.hedgeAmericanOdds,
+  }));
+
+  const priced = hedges.map((hedge, i) => ({
+    stake: hedge.stake,
+    decimalOdds: decimalOdds[i],
+  }));
+  const floor = worstCase({ payout, stake, hedges: priced });
+
+  const scenarios = enumerateScenarios(live.length).map((missing) => {
+    const profit = scenarioProfit({ payout, stake, hedges: priced, missing });
+    return {
+      missing: live.filter((_, i) => missing[i]).map((leg) => leg.label),
+      profit,
+      profitFromHere: profit + stake,
+    };
+  });
+
+  const thresholds = live.map((leg, i) => {
+    const others = decimalOdds.filter((_, j) => j !== i);
+    const now = hedgeThreshold({ payout, stake, otherDecimalOdds: others });
+    const downToOne = hedgeThreshold({ payout, stake, otherDecimalOdds: [] });
+    return {
+      legIndex: leg.index,
+      label: leg.label,
+      requiredAmerican: now === null ? null : decimalToAmerican(now),
+      downToOneAmerican: downToOne === null ? null : decimalToAmerican(downToOne),
+    };
+  });
+
+  let verdict;
+  if (solved.impliedTotal >= 1) {
+    verdict = 'no-hedge';
+  } else if (floor > 0) {
+    verdict = 'guaranteed';
+  } else {
+    verdict = 'reduces-downside';
+  }
+
+  return {
+    ...base,
+    verdict,
+    impliedTotal: solved.impliedTotal,
+    floor,
+    idealFloor: solved.floor,
+    hedges,
+    totalHedgeStake: hedges.reduce((sum, h) => sum + h.stake, 0),
+    scenarios,
+    thresholds,
+  };
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     americanToDecimal,
@@ -92,5 +199,6 @@ if (typeof module !== 'undefined' && module.exports) {
     solveHedge,
     roundStake,
     hedgeThreshold,
+    analyze,
   };
 }
