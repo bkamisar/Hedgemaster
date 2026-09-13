@@ -7,6 +7,7 @@ const {
   worstCase,
   solveHedge,
   roundStake,
+  hedgeThreshold,
 } = require('./hedge-engine.js');
 
 let passed = 0;
@@ -297,6 +298,32 @@ const roundedFloor = worstCase({ payout: R4, stake: 10, hedges: roundedHedges })
 ok('rounded floor is within a dollar of ideal',
   Math.abs(roundedFloor - plus150.floor) < 1);
 ok('rounded floor is still a profit', roundedFloor > 0);
+
+// --- Task 7: thresholds ---
+// Down to one leg on the 4x -110 parlay: almost any price guarantees profit,
+// because the payout dwarfs the stake.
+const lastLeg = hedgeThreshold({ payout: R4, stake: 10, otherDecimalOdds: [] });
+near('down-to-one threshold decimal', lastLeg, 1 / (1 - 10 / R4), 1e-6);
+ok('down-to-one threshold is a heavy favourite price',
+  decimalToAmerican(lastLeg) < -1000);
+
+// With a second live leg stuck at -110, the first leg needs roughly +149.
+const withSibling = hedgeThreshold({
+  payout: R4,
+  stake: 10,
+  otherDecimalOdds: [c110],
+});
+near('threshold with a -110 sibling is about +149',
+  decimalToAmerican(withSibling), 149, 2);
+
+// When the other legs already exhaust the budget, no price can rescue it.
+ok('impossible threshold returns null',
+  hedgeThreshold({ payout: 100, stake: 10, otherDecimalOdds: [1.01, 1.01] }) === null);
+
+// Sanity: a price just better than the threshold does guarantee profit.
+const justOver = withSibling + 0.05;
+const rescued = solveHedge({ payout: R4, stake: 10, decimalOdds: [justOver, c110] });
+ok('beating the threshold produces a guarantee', rescued.floor > 0);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

@@ -74,6 +74,13 @@ function roundStake(amount, increment = 0.5) {
   return Math.round(amount / increment) * increment;
 }
 
+function hedgeThreshold({ payout, stake, otherDecimalOdds }) {
+  const budget =
+    1 - stake / payout - otherDecimalOdds.reduce((sum, c) => sum + 1 / c, 0);
+  if (budget <= 0) return null;
+  return 1 / budget;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     americanToDecimal,
@@ -84,5 +91,6 @@ if (typeof module !== 'undefined' && module.exports) {
     worstCase,
     solveHedge,
     roundStake,
+    hedgeThreshold,
   };
 }
