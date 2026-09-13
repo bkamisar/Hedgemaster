@@ -6,6 +6,7 @@ const {
   scenarioProfit,
   worstCase,
   solveHedge,
+  roundStake,
 } = require('./hedge-engine.js');
 
 let passed = 0;
@@ -279,6 +280,23 @@ crossChecks.forEach((input, i) => {
   const oracle = bruteForceMaximin(input);
   near(`cross-check #${i} floor matches oracle`, closed.floor, oracle.floor, 0.02);
 });
+
+// --- Task 6: rounding ---
+near('rounds to nearest 0.50', roundStake(53.1332, 0.5), 53);
+near('rounds up at midpoint', roundStake(53.25, 0.5), 53.5);
+near('rounds zero to zero', roundStake(0, 0.5), 0);
+near('defaults to 0.50 increment', roundStake(1.3), 1.5);
+
+// The floor recomputed from rounded stakes is what the user actually gets,
+// and it must stay close to the ideal.
+const roundedHedges = plus150.stakes.map((s) => ({
+  stake: roundStake(s, 0.5),
+  decimalOdds: 2.5,
+}));
+const roundedFloor = worstCase({ payout: R4, stake: 10, hedges: roundedHedges });
+ok('rounded floor is within a dollar of ideal',
+  Math.abs(roundedFloor - plus150.floor) < 1);
+ok('rounded floor is still a profit', roundedFloor > 0);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

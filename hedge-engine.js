@@ -70,6 +70,10 @@ function solveHedge({ payout, stake, decimalOdds }) {
   };
 }
 
+function roundStake(amount, increment = 0.5) {
+  return Math.round(amount / increment) * increment;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     americanToDecimal,
@@ -79,5 +83,6 @@ if (typeof module !== 'undefined' && module.exports) {
     scenarioProfit,
     worstCase,
     solveHedge,
+    roundStake,
   };
 }
