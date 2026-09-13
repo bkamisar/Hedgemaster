@@ -5,6 +5,7 @@ const {
   enumerateScenarios,
   scenarioProfit,
   worstCase,
+  solveHedge,
 } = require('./hedge-engine.js');
 
 let passed = 0;
@@ -218,6 +219,56 @@ const oracleAsym = bruteForceMaximin({ payout: 100, stake: 10, decimalOdds: [4, 
 near('oracle finds asymmetric floor 25', oracleAsym.floor, 25, 0.02);
 near('oracle finds asymmetric stake 25 on the 4.0 leg', oracleAsym.stakes[0], 25, 0.02);
 near('oracle finds asymmetric stake 40 on the 2.5 leg', oracleAsym.stakes[1], 40, 0.02);
+
+// --- Task 5: closed-form solver ---
+const R4 = parlayPayout(10, fourLegs); // 132.8331...
+
+// Two live legs at +150 on the hedge side: the spec's worked example.
+const plus150 = solveHedge({ payout: R4, stake: 10, decimalOdds: [2.5, 2.5] });
+near('A = 0.8', plus150.impliedTotal, 0.8, 1e-9);
+near('guaranteed floor is 16.57', plus150.floor, 16.5666, 1e-3);
+near('stake per leg is 53.13', plus150.stakes[0], 53.1332, 1e-3);
+near('stakes are symmetric', plus150.stakes[1], plus150.stakes[0], 1e-9);
+
+// Two live legs at -110 on the hedge side: A > 1, no hedge helps.
+const c110 = 1 + 100 / 110;
+const minus110 = solveHedge({ payout: R4, stake: 10, decimalOdds: [c110, c110] });
+near('A = 1.048', minus110.impliedTotal, 1.0476, 1e-3);
+near('no-hedge floor is -stake', minus110.floor, -10, 1e-9);
+ok('no-hedge stakes are all zero', minus110.stakes.every((s) => s === 0));
+
+// Single leg reduces to the textbook formula.
+const single = solveHedge({ payout: 100, stake: 10, decimalOdds: [2.5] });
+near('single-leg stake is payout/c', single.stakes[0], 40, 1e-9);
+near('single-leg floor is 50', single.floor, 50, 1e-9);
+
+// Middle regime: two legs at -200 on a $40 stake -> payout 90. One live leg
+// hedged at -400 (decimal 1.25) -> A = 0.8, floor 90*0.2 - 40 = -22, which
+// is no profit but beats the -40 of doing nothing.
+const middle = solveHedge({ payout: 100, stake: 40, decimalOdds: [1.25] });
+ok('middle regime recommends hedging', middle.stakes[0] > 0);
+near('middle regime floor is -20', middle.floor, -20, 1e-9);
+ok('middle regime beats not hedging', middle.floor > -40);
+
+// No live legs.
+const none = solveHedge({ payout: 100, stake: 10, decimalOdds: [] });
+near('k=0 floor is payout - stake', none.floor, 90, 1e-9);
+
+// The load-bearing test: closed form must match the independent oracle.
+const crossChecks = [
+  { payout: 132.8331, stake: 10, decimalOdds: [2.5, 2.5] },
+  { payout: 132.8331, stake: 10, decimalOdds: [c110, c110] },
+  { payout: 500, stake: 25, decimalOdds: [3.4] },
+  { payout: 500, stake: 25, decimalOdds: [4.0, 3.2] },
+  { payout: 750, stake: 5, decimalOdds: [5.5, 4.25, 3.75] },
+  { payout: 300, stake: 50, decimalOdds: [1.8, 2.9] },
+  { payout: 220, stake: 20, decimalOdds: [2.05, 2.05, 2.05] },
+];
+crossChecks.forEach((input, i) => {
+  const closed = solveHedge(input);
+  const oracle = bruteForceMaximin(input);
+  near(`cross-check #${i} floor matches oracle`, closed.floor, oracle.floor, 0.02);
+});
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

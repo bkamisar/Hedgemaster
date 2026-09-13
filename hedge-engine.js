@@ -51,6 +51,25 @@ function worstCase({ payout, stake, hedges }) {
   );
 }
 
+function solveHedge({ payout, stake, decimalOdds }) {
+  const impliedTotal = decimalOdds.reduce((sum, c) => sum + 1 / c, 0);
+
+  if (decimalOdds.length === 0) {
+    return { impliedTotal: 0, stakes: [], floor: payout - stake };
+  }
+
+  // Above 100% no stake combination improves the worst case.
+  if (impliedTotal >= 1) {
+    return { impliedTotal, stakes: decimalOdds.map(() => 0), floor: -stake };
+  }
+
+  return {
+    impliedTotal,
+    stakes: decimalOdds.map((c) => payout / c),
+    floor: payout * (1 - impliedTotal) - stake,
+  };
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     americanToDecimal,
@@ -59,5 +78,6 @@ if (typeof module !== 'undefined' && module.exports) {
     enumerateScenarios,
     scenarioProfit,
     worstCase,
+    solveHedge,
   };
 }
