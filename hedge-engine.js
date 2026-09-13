@@ -22,6 +22,42 @@ function parlayPayout(stake, legs) {
   return stake * combined;
 }
 
+function enumerateScenarios(k) {
+  const scenarios = [];
+  for (let mask = 0; mask < 1 << k; mask++) {
+    scenarios.push(
+      Array.from({ length: k }, (_, i) => Boolean(mask & (1 << i)))
+    );
+  }
+  return scenarios;
+}
+
+function scenarioProfit({ payout, stake, hedges, missing }) {
+  const parlayReturn = missing.some(Boolean) ? 0 : payout;
+  let hedgeNet = 0;
+  hedges.forEach((hedge, i) => {
+    hedgeNet += missing[i]
+      ? hedge.stake * (hedge.decimalOdds - 1)
+      : -hedge.stake;
+  });
+  return parlayReturn - stake + hedgeNet;
+}
+
+function worstCase({ payout, stake, hedges }) {
+  return enumerateScenarios(hedges.length).reduce(
+    (min, missing) =>
+      Math.min(min, scenarioProfit({ payout, stake, hedges, missing })),
+    Infinity
+  );
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { americanToDecimal, decimalToAmerican, parlayPayout };
+  module.exports = {
+    americanToDecimal,
+    decimalToAmerican,
+    parlayPayout,
+    enumerateScenarios,
+    scenarioProfit,
+    worstCase,
+  };
 }
