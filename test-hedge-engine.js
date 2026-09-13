@@ -122,5 +122,53 @@ for (const missing of enumerateScenarios(3)) {
 }
 ok('profit is monotone once at least one leg has already missed', monoHolds);
 
+// --- Task 4: brute-force oracle (test infrastructure only) ---
+// Grid search with successive refinement. Stakes never usefully exceed the
+// payout, which bounds the search box.
+function bruteForceMaximin({ payout, stake, decimalOdds }) {
+  const k = decimalOdds.length;
+  const STEPS = 12;
+  const ROUNDS = 6;
+  let lo = decimalOdds.map(() => 0);
+  let hi = decimalOdds.map(() => payout);
+  let best = null;
+
+  for (let round = 0; round < ROUNDS; round++) {
+    const width = lo.map((l, i) => (hi[i] - l) / STEPS);
+    const grid = lo.map((l, i) =>
+      Array.from({ length: STEPS + 1 }, (_, j) => l + j * width[i])
+    );
+    best = null;
+    const combo = new Array(k);
+    const recurse = (i) => {
+      if (i === k) {
+        const hedges = combo.map((s, idx) => ({
+          stake: s,
+          decimalOdds: decimalOdds[idx],
+        }));
+        const floor = worstCase({ payout, stake, hedges });
+        if (!best || floor > best.floor) {
+          best = { floor, stakes: combo.slice() };
+        }
+        return;
+      }
+      for (const value of grid[i]) {
+        combo[i] = value;
+        recurse(i + 1);
+      }
+    };
+    recurse(0);
+    lo = best.stakes.map((s, i) => Math.max(0, s - width[i]));
+    hi = best.stakes.map((s, i) => s + width[i]);
+  }
+  return best;
+}
+
+// Self-check: single leg, payout 100, stake 10, hedge at decimal 2.5.
+// Textbook answer is stake 40, floor 50.
+const oracleOne = bruteForceMaximin({ payout: 100, stake: 10, decimalOdds: [2.5] });
+near('oracle finds single-leg floor 50', oracleOne.floor, 50, 0.01);
+near('oracle finds single-leg stake 40', oracleOne.stakes[0], 40, 0.01);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
