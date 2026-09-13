@@ -523,6 +523,16 @@ ok('middle regime beats not hedging', middle.floor > -40);
 const none = solveHedge({ payout: 100, stake: 10, decimalOdds: [] });
 near('k=0 floor is payout - stake', none.floor, 90, 1e-9);
 
+// Exactly at the branch condition's tie point (A=1): hedging and not
+// hedging both yield floor=-stake here (raising V past the all-hit payout
+// only costs more without raising the floor once A=1), so it's a genuine
+// tie rather than a discontinuity, and the >= branch correctly recommends
+// no stake rather than staking capital for zero incremental benefit.
+const atBoundary = solveHedge({ payout: 100, stake: 10, decimalOdds: [2, 2] });
+near('A=1 exactly triggers the no-hedge branch', atBoundary.impliedTotal, 1, 1e-9);
+near('A=1 floor is -stake, not a discontinuity', atBoundary.floor, -10, 1e-9);
+ok('A=1 recommends no stake', atBoundary.stakes.every((s) => s === 0));
+
 // The load-bearing test: closed form must match the independent oracle.
 const crossChecks = [
   { payout: 132.8331, stake: 10, decimalOdds: [2.5, 2.5] },
@@ -575,7 +585,7 @@ Add `solveHedge` to the exports block.
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `node test-hedge-engine.js`
-Expected: `53 passed, 0 failed`
+Expected: `56 passed, 0 failed`
 
 If a cross-check fails, trust the oracle and re-derive — do not loosen the tolerance.
 
@@ -641,7 +651,7 @@ Add `roundStake` to the exports block.
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `node test-hedge-engine.js`
-Expected: `59 passed, 0 failed`
+Expected: `62 passed, 0 failed`
 
 - [ ] **Step 5: Commit**
 
@@ -717,7 +727,7 @@ Add `hedgeThreshold` to the exports block.
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `node test-hedge-engine.js`
-Expected: `64 passed, 0 failed`
+Expected: `67 passed, 0 failed`
 
 - [ ] **Step 5: Commit**
 
@@ -979,7 +989,7 @@ if (typeof module !== 'undefined' && module.exports) {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `node test-hedge-engine.js`
-Expected: `94 passed, 0 failed`
+Expected: `97 passed, 0 failed`
 
 - [ ] **Step 5: Commit**
 
@@ -1349,7 +1359,7 @@ git commit -m "Add README covering usage, the hedge math, and limitations"
 
 ## Final verification
 
-- [ ] Run the full suite: `node test-hedge-engine.js` → `94 passed, 0 failed`
+- [ ] Run the full suite: `node test-hedge-engine.js` → `97 passed, 0 failed`
 - [ ] Load `index.html` and re-check the four cases from Task 9 Step 2
 - [ ] `git log --oneline` shows one commit per task
 - [ ] Do **not** push — pushes happen via GitHub Desktop
