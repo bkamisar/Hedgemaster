@@ -170,5 +170,30 @@ const oracleOne = bruteForceMaximin({ payout: 100, stake: 10, decimalOdds: [2.5]
 near('oracle finds single-leg floor 50', oracleOne.floor, 50, 0.01);
 near('oracle finds single-leg stake 40', oracleOne.stakes[0], 40, 0.01);
 
+// Second self-check, k=2: the single-leg case is provably safe for grid
+// refinement (a concave 1-D "tent" function can never hide its peak more
+// than one grid-width away), but that guarantee doesn't automatically
+// extend to 2+ dimensions, where the box re-centers on a single best SAMPLE
+// POINT rather than doing a per-axis line search. Since this oracle is the
+// only thing validating Task 5's closed-form solver, it needs at least one
+// multi-leg answer that's verifiable WITHOUT trusting that solver.
+//
+// Symmetric two-leg case, both hedges at the same decimal odds c: by
+// symmetry the optimal stakes are equal (s1=s2=s), which collapses worstCase
+// to a min over just two scenarios (not four) as a function of s alone:
+//   all-hit:        R - S - 2s
+//   exactly one miss (both give the same value by symmetry): -S + s(c-2)
+//   both miss:      -S + 2s(c-1), which is >= the one-miss value for any
+//                   s >= 0 since 2(c-1) - (c-2) = c > 0 -- so the one-miss
+//                   scenario is always the binding one among misses.
+// Maximizing min(R-S-2s, -S+s(c-2)) over s>=0: for c>2 the first line
+// decreases and the second increases in s, so the max-min sits where they
+// cross: R-S-2s = -S+s(c-2)  =>  s = R/c, floor = R(1 - 2/c) - S.
+// With R=100, S=10, c=2.5: s=40 each, floor = 100*(1-0.8)-10 = 10.
+const oracleTwo = bruteForceMaximin({ payout: 100, stake: 10, decimalOdds: [2.5, 2.5] });
+near('oracle finds two-leg floor 10 (hand-derived, not via solveHedge)', oracleTwo.floor, 10, 0.05);
+near('oracle finds two-leg stake 40 on leg 1', oracleTwo.stakes[0], 40, 0.05);
+near('oracle finds two-leg stake 40 on leg 2', oracleTwo.stakes[1], 40, 0.05);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
