@@ -260,8 +260,16 @@ near('both miss: -10 + 10 + 10',
 near('k=0 worst case is payout - stake',
   worstCase({ payout: 100, stake: 10, hedges: [] }), 90);
 
-// Monotonicity: profit never decreases as more legs miss. The whole k+1
-// reduction in the spec rests on this property.
+// Monotonicity: once the parlay has already failed on one leg (missing is
+// non-empty), profit never decreases as additional legs are also marked
+// missed. This is the property the k+1 reduction in the spec rests on.
+//
+// It is NOT claimed across the empty-missing boundary: going from "everything
+// hits" to "exactly one leg misses" swaps the full payout for one hedge's
+// payout, which only nets non-negative if that hedge alone covers the whole
+// payout (s_j*c_j >= payout) -- true for an optimally-solved hedge (Task 5),
+// not for arbitrary stakes like the ones below. So that transition is
+// deliberately excluded here.
 const monoHedges = [
   { stake: 17, decimalOdds: 2.3 },
   { stake: 23, decimalOdds: 3.1 },
@@ -269,6 +277,7 @@ const monoHedges = [
 ];
 let monoHolds = true;
 for (const missing of enumerateScenarios(3)) {
+  if (!missing.some(Boolean)) continue; // skip the empty-set starting point
   for (let i = 0; i < 3; i++) {
     if (missing[i]) continue;
     const more = missing.slice();
@@ -278,7 +287,7 @@ for (const missing of enumerateScenarios(3)) {
     if (after < before - 1e-9) monoHolds = false;
   }
 }
-ok('profit is monotone in number of misses', monoHolds);
+ok('profit is monotone once at least one leg has already missed', monoHolds);
 ```
 
 - [ ] **Step 2: Run test to verify it fails**

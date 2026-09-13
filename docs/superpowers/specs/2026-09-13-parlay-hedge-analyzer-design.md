@@ -73,10 +73,18 @@ The parlay pays only if **every** live leg hits. Any miss kills it.
 Adding one more missing leg `j` to a non-empty `M` changes that leg's
 contribution from `−s_j` to `+s_j(c_j − 1)`, a difference of `+s_j·c_j ≥ 0`.
 
-**Profit is monotonically non-decreasing as more legs miss.** Therefore the
-minimum over all scenarios with at least one miss is always attained at a
-*single* miss. Combined with the all-hit scenario, only `k + 1` scenarios can
-ever be binding — never `2^k`.
+**Among scenarios where the parlay has already failed (`M` non-empty),
+profit is monotonically non-decreasing as more legs miss.** This claim is
+scoped to non-empty `M` — it says nothing about the `M = ∅` → single-miss
+transition, where the payout term itself drops from `R` to `0`. That
+transition is not generally monotonic for arbitrary stakes; it only nets
+non-negative when a single hedge's payout covers the whole parlay payout
+(`s_j·c_j ≥ R`), which is precisely what the optimal solve arranges, not a
+free property of any stake vector.
+
+Therefore the minimum over all scenarios with at least one miss is always
+attained at a *single* miss. Combined with the all-hit scenario, only `k + 1`
+scenarios can ever be binding — never `2^k`.
 
 ### Solution
 
