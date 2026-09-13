@@ -254,6 +254,16 @@ ok('middle regime beats not hedging', middle.floor > -40);
 const none = solveHedge({ payout: 100, stake: 10, decimalOdds: [] });
 near('k=0 floor is payout - stake', none.floor, 90, 1e-9);
 
+// Exactly at the branch condition's tie point (A=1): hedging and not
+// hedging both yield floor=-stake here (raising V past the all-hit payout
+// only costs more without raising the floor once A=1), so it's a genuine
+// tie rather than a discontinuity, and the >= branch correctly recommends
+// no stake rather than staking capital for zero incremental benefit.
+const atBoundary = solveHedge({ payout: 100, stake: 10, decimalOdds: [2, 2] });
+near('A=1 exactly triggers the no-hedge branch', atBoundary.impliedTotal, 1, 1e-9);
+near('A=1 floor is -stake, not a discontinuity', atBoundary.floor, -10, 1e-9);
+ok('A=1 recommends no stake', atBoundary.stakes.every((s) => s === 0));
+
 // The load-bearing test: closed form must match the independent oracle.
 const crossChecks = [
   { payout: 132.8331, stake: 10, decimalOdds: [2.5, 2.5] },

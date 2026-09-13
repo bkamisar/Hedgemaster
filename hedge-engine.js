@@ -58,7 +58,7 @@ function solveHedge({ payout, stake, decimalOdds }) {
     return { impliedTotal: 0, stakes: [], floor: payout - stake };
   }
 
-  // Above 100% no stake combination improves the worst case.
+  // At or above 100% no stake combination improves the worst case.
   if (impliedTotal >= 1) {
     return { impliedTotal, stakes: decimalOdds.map(() => 0), floor: -stake };
   }
