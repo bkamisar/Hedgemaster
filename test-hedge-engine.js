@@ -1,6 +1,7 @@
 const {
   americanToDecimal,
   decimalToAmerican,
+  parlayPayout,
 } = require('./hedge-engine.js');
 
 let passed = 0;
@@ -46,6 +47,17 @@ near('round-trip -325', decimalToAmerican(americanToDecimal(-325)), -325);
 throws('rejects +50', () => americanToDecimal(50));
 throws('rejects 0', () => americanToDecimal(0));
 throws('rejects decimal 1.0', () => decimalToAmerican(1));
+
+// --- Task 2: parlay payout ---
+const fourLegs = [
+  { americanOdds: -110 },
+  { americanOdds: -110 },
+  { americanOdds: -110 },
+  { americanOdds: -110 },
+];
+near('4x -110 on $10 pays 132.83', parlayPayout(10, fourLegs), 132.8331, 1e-3);
+near('single leg +150 on $20 pays 50', parlayPayout(20, [{ americanOdds: 150 }]), 50);
+near('empty parlay returns stake', parlayPayout(10, []), 10);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

@@ -14,6 +14,14 @@ function decimalToAmerican(decimal) {
   return d >= 2 ? Math.round((d - 1) * 100) : Math.round(-100 / (d - 1));
 }
 
+function parlayPayout(stake, legs) {
+  const combined = legs.reduce(
+    (acc, leg) => acc * americanToDecimal(leg.americanOdds),
+    1
+  );
+  return stake * combined;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { americanToDecimal, decimalToAmerican };
+  module.exports = { americanToDecimal, decimalToAmerican, parlayPayout };
 }
