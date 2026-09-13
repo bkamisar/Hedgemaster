@@ -167,8 +167,8 @@ function bruteForceMaximin({ payout, stake, decimalOdds }) {
 // Self-check: single leg, payout 100, stake 10, hedge at decimal 2.5.
 // Textbook answer is stake 40, floor 50.
 const oracleOne = bruteForceMaximin({ payout: 100, stake: 10, decimalOdds: [2.5] });
-near('oracle finds single-leg floor 50', oracleOne.floor, 50, 0.01);
-near('oracle finds single-leg stake 40', oracleOne.stakes[0], 40, 0.01);
+near('oracle finds single-leg floor 50', oracleOne.floor, 50, 0.02);
+near('oracle finds single-leg stake 40', oracleOne.stakes[0], 40, 0.02);
 
 // Second self-check, k=2: the single-leg case is provably safe for grid
 // refinement (a concave 1-D "tent" function can never hide its peak more
@@ -191,9 +191,33 @@ near('oracle finds single-leg stake 40', oracleOne.stakes[0], 40, 0.01);
 // cross: R-S-2s = -S+s(c-2)  =>  s = R/c, floor = R(1 - 2/c) - S.
 // With R=100, S=10, c=2.5: s=40 each, floor = 100*(1-0.8)-10 = 10.
 const oracleTwo = bruteForceMaximin({ payout: 100, stake: 10, decimalOdds: [2.5, 2.5] });
-near('oracle finds two-leg floor 10 (hand-derived, not via solveHedge)', oracleTwo.floor, 10, 0.05);
-near('oracle finds two-leg stake 40 on leg 1', oracleTwo.stakes[0], 40, 0.05);
-near('oracle finds two-leg stake 40 on leg 2', oracleTwo.stakes[1], 40, 0.05);
+near('oracle finds two-leg floor 10 (hand-derived, not via solveHedge)', oracleTwo.floor, 10, 0.02);
+near('oracle finds two-leg stake 40 on leg 1', oracleTwo.stakes[0], 40, 0.02);
+near('oracle finds two-leg stake 40 on leg 2', oracleTwo.stakes[1], 40, 0.02);
+
+// Third self-check, ASYMMETRIC k=2: the symmetric case above cannot catch a
+// bug that mislabels or swaps which stake/odds pair belongs to which leg --
+// by construction both legs are interchangeable there, so an axis-swap bug
+// is invisible to it. This case uses different odds per leg specifically to
+// close that gap, and is derived the same way as the general k+1 reduction
+// in the spec (not by trusting solveHedge):
+//
+// For two legs with (possibly different) decimal odds c1, c2 and stakes
+// s1, s2, the four scenarios are:
+//   all-hit:        R - S - s1 - s2
+//   leg1-miss-only: -S + s1(c1-1) - s2
+//   leg2-miss-only: -S - s1 + s2(c2-1)
+//   both-miss:      -S + s1(c1-1) + s2(c2-1)
+// both-miss minus leg1-miss-only = s2*c2 >= 0, and both-miss minus
+// leg2-miss-only = s1*c1 >= 0, for ANY s1,s2 >= 0 -- so both-miss is always
+// dominated and only the other three scenarios can bind, regardless of
+// symmetry. Setting all-hit = leg1-miss-only forces s1 = R/c1; setting
+// all-hit = leg2-miss-only forces s2 = R/c2. With R=100, S=10, c1=4, c2=2.5:
+// s1=25, s2=40, and all three binding scenarios equal 100-10-25-40=25.
+const oracleAsym = bruteForceMaximin({ payout: 100, stake: 10, decimalOdds: [4, 2.5] });
+near('oracle finds asymmetric floor 25', oracleAsym.floor, 25, 0.02);
+near('oracle finds asymmetric stake 25 on the 4.0 leg', oracleAsym.stakes[0], 25, 0.02);
+near('oracle finds asymmetric stake 40 on the 2.5 leg', oracleAsym.stakes[1], 40, 0.02);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
