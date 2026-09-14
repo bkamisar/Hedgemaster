@@ -28,14 +28,27 @@
          Menlo, Consolas, monospace;
   }
 
-  /* ---- ticket head ---- */
-  .head { max-width:560px; margin:0 auto 16px; text-align:center; }
-  h1 { margin:0; font-size:30px; font-weight:800; letter-spacing:.22em;
-       text-transform:uppercase; text-indent:.22em; }
-  h1 span { font-weight:400; }
-  .sub { margin-top:6px; padding-top:6px; font-size:10px; letter-spacing:.2em;
-         text-transform:uppercase; color:var(--faint);
-         border-top:3px double var(--ink); }
+  /* ---- masthead ---- */
+  .head { max-width:560px; margin:0 auto 18px; }
+  /* swelled rule: heavy over hairline, the classic masthead device */
+  .swell { height:5px; border-top:4px solid var(--ink);
+           border-bottom:1px solid var(--ink); }
+  h1 { margin:11px 0 0; padding:17px 6px 15px; background:var(--ink);
+       color:var(--slip); text-align:center; line-height:1;
+       font-size:clamp(21px, 7.1vw, 34px); font-weight:800;
+       letter-spacing:.26em; text-indent:.26em; text-transform:uppercase;
+       white-space:nowrap; overflow:hidden;
+       /* hairline rule inset from the edge — the engraved-certificate device */
+       box-shadow:inset 0 0 0 4px var(--ink), inset 0 0 0 5px rgba(247,243,232,.45); }
+  /* second half knocked back to outline so the mark reads as one designed
+     lockup rather than bold-plus-regular. Translucent fill is the fallback
+     wherever text-stroke doesn't apply. */
+  h1 .mk { color:rgba(247,243,232,.26); -webkit-text-stroke:1.1px var(--slip); }
+  .meta { display:flex; justify-content:space-between; align-items:center;
+          gap:8px; margin-top:7px; font-size:9px; letter-spacing:.17em;
+          text-transform:uppercase; color:var(--faint); }
+  .meta b { font-weight:700; color:var(--ink); }
+  .orn { font-size:7px; color:var(--ink); letter-spacing:.4em; }
 
   /* ---- the slips ---- */
   .card { max-width:560px; margin:0 auto 16px; background:var(--slip);
@@ -117,8 +130,13 @@
 <body>
 
 <div class="head">
-  <h1>Hedge<span>master</span></h1>
-  <div class="sub">Wager analysis slip · No. <span id="slipNo">000000</span></div>
+  <div class="swell"></div>
+  <h1>Hedge<span class="mk">master</span></h1>
+  <div class="meta">
+    <span>Slip No.&nbsp;<b id="slipNo">000000</b></span>
+    <span class="orn">◆ ◆ ◆</span>
+    <span>American odds</span>
+  </div>
 </div>
 
 <div class="card">
