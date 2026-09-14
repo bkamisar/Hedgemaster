@@ -1184,7 +1184,7 @@ function readLegs() {
   }));
 }
 
-function render(result) {
+function render(result, legs) {
   const box = document.getElementById('results');
   box.classList.remove('hidden');
 
@@ -1205,8 +1205,21 @@ function render(result) {
       versus ${money(-result.stake)} if you do nothing.</div>`;
   }
   if (result.verdict === 'no-hedge' && result.reason === 'unhedgeable') {
-    html += `<div class="note">A live leg has no line available, so every
-      hedge dollar is exposed to that leg busting on its own.</div>`;
+    // Distinguish "you told me this leg has no line" from "you haven't
+    // entered odds yet" and name the specific leg(s) -- with 2+ live legs a
+    // single generic sentence leaves the user unable to tell which input is
+    // the problem, and the two causes need different fixes from the user.
+    const liveLegs = legs.filter((l) => l.status === 'live');
+    const issues = liveLegs
+      .map((l) => {
+        const validOdds =
+          Number.isFinite(l.hedgeAmericanOdds) && Math.abs(l.hedgeAmericanOdds) >= 100;
+        if (l.hedgeable === false) return `${esc(l.label)}: no line available`;
+        if (!validOdds) return `${esc(l.label)}: enter odds, or mark it unavailable`;
+        return null;
+      })
+      .filter(Boolean);
+    html += `<div class="note">Can't hedge yet:<br>${issues.join('<br>')}</div>`;
   } else if (result.verdict === 'no-hedge') {
     html += `<div class="note">Your hedge prices imply
       ${(result.impliedTotal * 100).toFixed(1)}% — above 100%, so no stake
@@ -1269,12 +1282,20 @@ document.getElementById('analyze').onclick = () => {
     if (!(stake > 0)) throw new Error('Enter a stake above zero.');
     const legs = readLegs();
     if (!legs.length) throw new Error('Add at least one leg.');
-    render(analyze({ stake, legs }));
+    render(analyze({ stake, legs }), legs);
   } catch (err) {
     const box = document.getElementById('results');
     box.classList.remove('hidden');
+    // americanToDecimal's own error ("Invalid American odds: 0") is correct
+    // but reads like a bug report -- most triggers of it here are a leg's
+    // OWN odds field (not the hedge-odds field, which analyze() already
+    // handles gracefully) being blank or out of range, so give a plain-
+    // language nudge instead of leaking the internal message.
+    const message = /Invalid American odds/.test(err.message)
+      ? 'Check that every leg has valid odds entered (e.g. -110 or +150) -- American odds must be 100 or more, in either direction.'
+      : err.message;
     box.innerHTML =
-      `<div class="card"><div class="verdict bad">${esc(err.message)}</div></div>`;
+      `<div class="card"><div class="verdict bad">${esc(message)}</div></div>`;
   }
 };
 </script>
@@ -1293,10 +1314,17 @@ Open `http://localhost:8000` and check four cases by hand:
    rounded to $53.00 — the page reports what you would actually collect.)
 2. Change both hedge odds to `-110` → red "No guaranteed profit. Don't hedge.",
    implied percentage shown as 104.8%.
-3. Set one live leg's availability to "No line" → no-hedge verdict with the
-   missing-line explanation.
+3. Set one live leg's availability to "No line" → no-hedge verdict listing
+   that specific leg as "no line available". With a second live leg left at
+   its default blank hedge-odds field, it should be listed separately as
+   "enter odds, or mark it unavailable" -- the two causes get different
+   wording, and both name which leg.
 4. Type `<b>x</b>` as a leg description and analyze → it renders as literal
    text in the results tables, not as bold markup.
+5. Open the page fresh (don't touch anything) and click Analyze immediately
+   → should list the second demo leg as needing odds entered, NOT claim it
+   has "no line available" (that phrasing is reserved for the explicit
+   "No line" selection, not for a simply-unfilled field).
 
 Confirm the page is usable at phone width (narrow the window to ~380px).
 
