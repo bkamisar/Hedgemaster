@@ -340,6 +340,36 @@ the `dead` verdict, where a leg has actually lost and the assumptions are moot.
 
 With nothing checked, every output is byte-identical to current behaviour.
 
+### The hidden branch — and why the verdict line is not enough
+
+The table above was initially treated as the whole mitigation. It is not, and
+the omission produced a real defect: an assumption hides an entire branch of
+outcomes from `analyze()` — **the assumed leg missing** — and in that branch the
+parlay dies *and* every hedge placed on the other legs can still lose. The true
+worst case is therefore `stake + total hedge stakes`, which is not only far
+below the reported floor but typically **worse than not hedging at all**.
+
+Because `analyze()` cannot see that branch, any surviving copy that speaks with
+certainty about worst cases or completeness is wrong under an assumption. Three
+places were:
+
+- The `reduces-downside` note set a conditional floor against an unconditional
+  do-nothing figure — "worst case with the hedge: −$6.70, versus −$10.00 if you
+  do nothing" — when taking that advice risked −$76.00. This asserted something
+  false, not merely incomplete.
+- The outcome table, titled "Every outcome", enumerated only the branches where
+  the assumed legs hit — every row favourable, the one losing branch absent.
+- "whichever leg busts, that bet alone returns your entire parlay payout" is
+  untrue of an assumed leg, for which no such bet exists.
+
+So the rule is: **under an assumption, no output may state or imply a worst
+case, a comparison against doing nothing, or a claim of completeness without
+scoping it to "if the assumed legs hit".** Concretely the app must
+quantify the hidden downside on the verdict card, title the outcome table
+conditionally, and carry an explicit row for the assumed-leg-misses branch.
+Where no hedges are actually recommended, that downside is just the stake, and
+the copy must say so rather than referring to hedges that do not exist.
+
 ## Knock-on effects (intended)
 
 Assumed legs drop out of the outcome-scenario table and the odds-threshold

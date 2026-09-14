@@ -146,6 +146,12 @@ function render(result, legs, assumed = []) {
   // The won case matters most: assuming every remaining live leg legitimately
   // makes analyze() return 'won', but nothing has actually finished.
   const projected = assumed.length > 0;
+  // An assumption hides an entire branch of outcomes from analyze(): the
+  // assumed leg missing. In that branch the parlay dies AND every hedge placed
+  // on the other legs can still lose, so the real worst case is the stake plus
+  // all hedge stakes -- typically far worse than the floor shown, and worse
+  // than not hedging at all. No copy below may imply otherwise.
+  const assumedMissWorst = -(result.stake + result.totalHedgeStake);
   const headline = {
     guaranteed: [
       projected
@@ -180,14 +186,29 @@ function render(result, legs, assumed = []) {
 
   // Suppressed for 'dead': a leg has actually lost, so the assumptions are moot.
   if (projected && result.verdict !== 'dead') {
+    // Only speak of hedges dying when hedges are actually being recommended;
+    // with none placed, the downside is just the stake and there is nothing
+    // for it to be "worse than not hedging" than.
+    const downside = result.totalHedgeStake > 0
+      ? `the parlay dies and the hedges below die with it — as bad as
+         ${money(assumedMissWorst)}, worse than not hedging at all`
+      : `the parlay is dead and you lose your ${money(-assumedMissWorst)} stake`;
     html += `<div class="note assumed">Assumes these still-live legs hit:
-      ${assumed.map((l) => esc(l.label)).join(', ')}. Nothing above is locked
-      in until they actually do.</div>`;
+      ${assumed.map((l) => esc(l.label)).join(', ')}. If that's wrong,
+      ${downside}. Nothing above is locked in until they actually land.</div>`;
   }
 
   if (result.verdict === 'reduces-downside') {
-    html += `<div class="note">Worst case with the hedge: ${money(result.floor)},
-      versus ${money(-result.stake)} if you do nothing.</div>`;
+    // Unprojected, both figures are unconditional and directly comparable.
+    // Projected, the floor is conditional on the assumed legs landing while
+    // the do-nothing figure is not, so they must not be set against each
+    // other as if they were the same kind of number.
+    html += projected
+      ? `<div class="note">If the assumed legs hit, worst case is
+         ${money(result.floor)} versus ${money(-result.stake)} unhedged. If
+         they don't, see above — hedging costs you more than sitting out.</div>`
+      : `<div class="note">Worst case with the hedge: ${money(result.floor)},
+         versus ${money(-result.stake)} if you do nothing.</div>`;
   }
   if (result.verdict === 'no-hedge' && result.reason === 'unhedgeable') {
     // Distinguish "you told me this leg has no line" from "you haven't
@@ -221,12 +242,14 @@ function render(result, legs, assumed = []) {
     });
     html += `<tr><td colspan="2"><strong>Total</strong></td>
       <td class="num"><strong>${money(result.totalHedgeStake)}</strong></td></tr></table>
-      <div class="note">Each stake is sized so that whichever leg busts,
-      that bet alone returns your entire parlay payout.</div></div>`;
+      <div class="note">Each stake is sized so that whichever
+      ${projected ? 'of the legs above' : 'leg'} busts, that bet alone returns
+      your entire parlay payout.</div></div>`;
   }
 
   if (result.scenarios.length) {
-    html += `<div class="card"><strong>Every outcome</strong>
+    html += `<div class="card"><strong>${projected
+      ? 'Every outcome if the assumed legs hit' : 'Every outcome'}</strong>
       <table><tr><th>If these miss</th><th class="num">Profit</th>
       <th class="num">From here</th></tr>`;
     result.scenarios.forEach((s) => {
@@ -238,6 +261,13 @@ function render(result, legs, assumed = []) {
         <td class="num ${cls}">${money(s.profit)}</td>
         <td class="num">${money(s.profitFromHere)}</td></tr>`;
     });
+    // The branch analyze() can't see, restored explicitly: a table headed
+    // "every outcome" must not quietly omit the only losing one.
+    if (projected) {
+      html += `<tr><td>an assumed leg misses</td>
+        <td class="num bad">${money(assumedMissWorst)}</td>
+        <td class="num">${money(assumedMissWorst + result.stake)}</td></tr>`;
+    }
     html += `</table><div class="note">"Profit" is net of your original
       ${money(result.stake)} stake; "from here" treats that stake as already
       spent.</div></div>`;
@@ -254,8 +284,8 @@ function render(result, legs, assumed = []) {
       html += `<tr><td>${esc(t.label)}</td><td class="num">${now}</td>
         <td class="num">${last}</td></tr>`;
     });
-    html += `</table><div class="note">"If last leg" assumes the other live
-      legs hit first — usually the moment a guarantee appears.</div></div>`;
+    html += `</table><div class="note">"If last leg" assumes the other
+      undecided legs hit first — usually the moment a guarantee appears.</div></div>`;
   }
 
   box.innerHTML = html;
