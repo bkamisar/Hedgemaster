@@ -72,5 +72,6 @@ solver matches it, so the derivation is checked rather than assumed.
 
 ## Deploy (GitHub Pages)
 
-Publish the repo, then Settings → Pages → deploy from `main` root. Bookmark it
-on your phone.
+Publish the repo, then Settings → Pages → deploy from your default branch's
+root (this repo's is `master`; Pages lets you pick any branch there). Bookmark
+it on your phone.
