@@ -1361,7 +1361,7 @@ between visits.
 2. Add each leg: your odds as booked, and whether it has won, lost, or is
    still live.
 3. For each live leg, enter the odds available *right now* on the opposite
-   side.
+   side — or mark it "No line" if there's nothing to bet against it with.
 4. Hit Analyze.
 
 Live legs need two prices because they are two different things: the odds you
@@ -1369,8 +1369,9 @@ locked in determine the payout, and today's opposing odds determine the hedge.
 
 ## What it tells you
 
-There are three possible answers, and the difference between the last two
-matters:
+If every leg has already settled, you just get a plain "already dead" or
+"parlay won" readout. Otherwise, there are three possible answers, and the
+difference between the last two matters:
 
 | Verdict | Meaning |
 |---|---|
