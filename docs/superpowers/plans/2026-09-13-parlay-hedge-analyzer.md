@@ -847,6 +847,39 @@ const singleLeg = analyze({
 });
 ok('single-leg parlay is guaranteed', singleLeg.verdict === 'guaranteed');
 ok('single-leg has one hedge', singleLeg.hedges.length === 1);
+
+// A live leg with no explicit hedgeable:false but a blank/invalid hedge-odds
+// field (as a UI text input would parse an empty string to Number('') === 0)
+// must get the same clean no-hedge verdict as the explicit case, not an
+// uncaught throw from americanToDecimal.
+const blankOddsLegs = [
+  { label: 'Leg A', americanOdds: 150, status: 'live', hedgeAmericanOdds: 150 },
+  { label: 'Leg B', americanOdds: 150, status: 'live', hedgeAmericanOdds: Number('') },
+];
+const blankOdds = analyze({ stake: 10, legs: blankOddsLegs });
+ok('blank hedge odds forces no-hedge, not a throw', blankOdds.verdict === 'no-hedge');
+ok('blank hedge odds reason is unhedgeable', blankOdds.reason === 'unhedgeable');
+near('blank hedge odds floor is -stake', blankOdds.floor, -10, 1e-9);
+
+// legIndex must map back to the ORIGINAL legs array position, not the
+// position within the filtered live-legs list -- test with live legs that
+// are NOT contiguous (won, live, won, live) so a bug that used the live-array
+// loop index instead of the original index would actually be caught.
+const interleavedLegs = [
+  { label: 'Leg 0 (won)', americanOdds: -110, status: 'won' },
+  { label: 'Leg 1 (live)', americanOdds: -110, status: 'live', hedgeAmericanOdds: 150 },
+  { label: 'Leg 2 (won)', americanOdds: -110, status: 'won' },
+  { label: 'Leg 3 (live)', americanOdds: -110, status: 'live', hedgeAmericanOdds: 150 },
+];
+const interleaved = analyze({ stake: 10, legs: interleavedLegs });
+ok('legIndex on hedges matches original position (1, not 0)',
+  interleaved.hedges[0].legIndex === 1);
+ok('legIndex on hedges matches original position (3, not 1)',
+  interleaved.hedges[1].legIndex === 3);
+ok('legIndex on thresholds matches original position (1, not 0)',
+  interleaved.thresholds[0].legIndex === 1);
+ok('legIndex on thresholds matches original position (3, not 1)',
+  interleaved.thresholds[1].legIndex === 3);
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -891,7 +924,16 @@ function analyze({ stake, legs }) {
 
   // A leg that cannot be hedged leaves a scenario where it alone misses and
   // every other hedge stake is simply lost, so any hedging lowers the floor.
-  if (live.some((leg) => leg.hedgeable === false)) {
+  // This includes both an explicit hedgeable:false flag AND a live leg whose
+  // hedgeAmericanOdds isn't valid (e.g. a blank UI field parsed to 0 or NaN)
+  // -- americanToDecimal would throw on either, and a user leaving a field
+  // blank is a far more likely path through this code than an explicit
+  // hedgeable:false, so it needs the same clean "no-hedge" verdict rather
+  // than an uncaught exception surfacing a raw error message.
+  const hasValidHedgeOdds = (odds) =>
+    Number.isFinite(odds) && Math.abs(odds) >= 100;
+
+  if (live.some((leg) => leg.hedgeable === false || !hasValidHedgeOdds(leg.hedgeAmericanOdds))) {
     return {
       ...base,
       verdict: 'no-hedge',
@@ -902,7 +944,7 @@ function analyze({ stake, legs }) {
         legIndex: leg.index,
         label: leg.label,
         stake: 0,
-        americanOdds: leg.hedgeAmericanOdds ?? null,
+        americanOdds: hasValidHedgeOdds(leg.hedgeAmericanOdds) ? leg.hedgeAmericanOdds : null,
       })),
     };
   }
@@ -944,6 +986,13 @@ function analyze({ stake, legs }) {
     };
   });
 
+  // impliedTotal must be checked separately from floor, not inferred from
+  // it: solveHedge guarantees floor === -stake exactly whenever
+  // impliedTotal >= 1, but a rounding-induced non-positive floor can also
+  // occur when impliedTotal < 1 (a real hedge exists in theory, rounding
+  // just erased the guarantee) -- that case must classify as
+  // reduces-downside, not no-hedge. If solveHedge's invariant here ever
+  // changes, this classification needs to change with it.
   let verdict;
   if (solved.impliedTotal >= 1) {
     verdict = 'no-hedge';
@@ -989,7 +1038,7 @@ if (typeof module !== 'undefined' && module.exports) {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `node test-hedge-engine.js`
-Expected: `97 passed, 0 failed`
+Expected: `104 passed, 0 failed`
 
 - [ ] **Step 5: Commit**
 
@@ -1359,7 +1408,7 @@ git commit -m "Add README covering usage, the hedge math, and limitations"
 
 ## Final verification
 
-- [ ] Run the full suite: `node test-hedge-engine.js` → `97 passed, 0 failed`
+- [ ] Run the full suite: `node test-hedge-engine.js` → `104 passed, 0 failed`
 - [ ] Load `index.html` and re-check the four cases from Task 9 Step 2
 - [ ] `git log --oneline` shows one commit per task
 - [ ] Do **not** push — pushes happen via GitHub Desktop
