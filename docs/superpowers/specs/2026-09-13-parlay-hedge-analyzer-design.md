@@ -267,3 +267,94 @@ that must not be wrong.
 - Push handling.
 - Partial-hedge / risk-reduction view for when no guarantee exists (lock in a
   floor while keeping upside).
+
+---
+
+# Addendum: "Treat as won (not final)" toggle
+
+**Date:** 2026-09-14
+**Status:** Approved design
+
+## Problem
+
+Hedging decisions are usually made *during* games, not after them. A leg can be
+effectively decided — a three-score lead late in the fourth — long before it
+formally settles, and while it is still formally live it clutters the analysis:
+the app keeps asking for a hedge price on it and keeps enumerating outcomes in
+which it loses.
+
+The user wants to provisionally set such a leg aside — "I'm confident, don't
+make me hedge this one" — and see the hedge picture for the legs that are still
+genuinely in doubt, without lying to the app by marking the leg Won before it
+is.
+
+## The feature
+
+A per-leg checkbox, **"Treat as won (not final)"**, shown only while a leg's
+status is Live. Checking it:
+
+- leaves the leg's real status as `live` (it is still listed as a live leg, and
+  unchecking restores everything),
+- hides that leg's hedge-odds and availability fields, exactly as a genuinely
+  Won leg already does — anything typed there is retained and reappears on
+  uncheck,
+- and, for the purposes of *computing* a result only, treats the leg as Won.
+
+## Implementation shape
+
+**No change to `hedge-engine.js`.** `analyze()` already handles Won legs
+correctly: their booked odds count toward the payout and they are excluded from
+the live set that needs hedging. The feature is entirely a UI-layer
+substitution.
+
+On Analyze, the UI derives a computed copy of the legs in which every
+checked-and-live leg has `status: 'won'` substituted, and passes that copy to
+`analyze()`. The on-screen leg list is never mutated.
+
+`readLegs()` reports `assumeWin` as true only when the checkbox is checked *and*
+the leg's status is still `live`, so a stale checkbox left over from a leg since
+switched to Won or Lost cannot influence anything.
+
+## Projected framing (the part that must not be lost)
+
+Any result computed while at least one leg is assumed is **conditional**: it
+holds only if those legs actually hit. Presenting such a result in the same
+words as a real guarantee would be the single most misleading thing this app
+could do, so whenever any assumption is active, every verdict is relabelled:
+
+| Real | Projected |
+|---|---|
+| Guaranteed profit: $X | **Projected** guaranteed profit: $X |
+| No guarantee — but hedging cuts your downside | **Projected** — no guarantee, but hedging cuts your downside |
+| No guaranteed profit. Don't hedge. | **Projected** — no guaranteed profit. Don't hedge. |
+| Parlay won: $X profit. | **Projected win**: $X profit. |
+
+The `won` row matters most. Checking every remaining live leg makes `analyze()`
+legitimately return `verdict: 'won'` — there are no live legs left in the
+computed view — but nothing has actually finished, so the real "Parlay won"
+message must never appear on the strength of an assumption alone.
+
+Alongside the verdict, a line names exactly which legs are being assumed and
+states plainly that nothing is locked in until they land. It is suppressed for
+the `dead` verdict, where a leg has actually lost and the assumptions are moot.
+
+With nothing checked, every output is byte-identical to current behaviour.
+
+## Knock-on effects (intended)
+
+Assumed legs drop out of the outcome-scenario table and the odds-threshold
+table, since both are derived from the live set. That simplification is the
+point of the feature: fewer rows, covering only what is genuinely undecided.
+
+An assumed leg marked "No line" also stops blocking the analysis, since the
+unhedgeable check only inspects live legs — which is correct and useful: a leg
+you cannot hedge but are confident about should not prevent you from seeing the
+hedge picture for the rest.
+
+## Limitations
+
+- The app still models no probabilities. "Confident" is the user's judgement,
+  entered by hand; the app neither estimates nor validates it, and the
+  arithmetic downstream is unchanged.
+- A projected guarantee is not a guarantee. The relabelling above is the whole
+  mitigation.
