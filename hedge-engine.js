@@ -113,7 +113,16 @@ function analyze({ stake, legs }) {
 
   // A leg that cannot be hedged leaves a scenario where it alone misses and
   // every other hedge stake is simply lost, so any hedging lowers the floor.
-  if (live.some((leg) => leg.hedgeable === false)) {
+  // This includes both an explicit hedgeable:false flag AND a live leg whose
+  // hedgeAmericanOdds isn't valid (e.g. a blank UI field parsed to 0 or NaN)
+  // -- americanToDecimal would throw on either, and a user leaving a field
+  // blank is a far more likely path through this code than an explicit
+  // hedgeable:false, so it needs the same clean "no-hedge" verdict rather
+  // than an uncaught exception surfacing a raw error message.
+  const hasValidHedgeOdds = (odds) =>
+    Number.isFinite(odds) && Math.abs(odds) >= 100;
+
+  if (live.some((leg) => leg.hedgeable === false || !hasValidHedgeOdds(leg.hedgeAmericanOdds))) {
     return {
       ...base,
       verdict: 'no-hedge',
@@ -124,7 +133,7 @@ function analyze({ stake, legs }) {
         legIndex: leg.index,
         label: leg.label,
         stake: 0,
-        americanOdds: leg.hedgeAmericanOdds ?? null,
+        americanOdds: hasValidHedgeOdds(leg.hedgeAmericanOdds) ? leg.hedgeAmericanOdds : null,
       })),
     };
   }
@@ -166,6 +175,13 @@ function analyze({ stake, legs }) {
     };
   });
 
+  // impliedTotal must be checked separately from floor, not inferred from
+  // it: solveHedge guarantees floor === -stake exactly whenever
+  // impliedTotal >= 1, but a rounding-induced non-positive floor can also
+  // occur when impliedTotal < 1 (a real hedge exists in theory, rounding
+  // just erased the guarantee) -- that case must classify as
+  // reduces-downside, not no-hedge. If solveHedge's invariant here ever
+  // changes, this classification needs to change with it.
   let verdict;
   if (solved.impliedTotal >= 1) {
     verdict = 'no-hedge';

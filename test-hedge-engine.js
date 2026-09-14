@@ -412,5 +412,38 @@ const singleLeg = analyze({
 ok('single-leg parlay is guaranteed', singleLeg.verdict === 'guaranteed');
 ok('single-leg has one hedge', singleLeg.hedges.length === 1);
 
+// A live leg with no explicit hedgeable:false but a blank/invalid hedge-odds
+// field (as a UI text input would parse an empty string to Number('') === 0)
+// must get the same clean no-hedge verdict as the explicit case, not an
+// uncaught throw from americanToDecimal.
+const blankOddsLegs = [
+  { label: 'Leg A', americanOdds: 150, status: 'live', hedgeAmericanOdds: 150 },
+  { label: 'Leg B', americanOdds: 150, status: 'live', hedgeAmericanOdds: Number('') },
+];
+const blankOdds = analyze({ stake: 10, legs: blankOddsLegs });
+ok('blank hedge odds forces no-hedge, not a throw', blankOdds.verdict === 'no-hedge');
+ok('blank hedge odds reason is unhedgeable', blankOdds.reason === 'unhedgeable');
+near('blank hedge odds floor is -stake', blankOdds.floor, -10, 1e-9);
+
+// legIndex must map back to the ORIGINAL legs array position, not the
+// position within the filtered live-legs list -- test with live legs that
+// are NOT contiguous (won, live, won, live) so a bug that used the live-array
+// loop index instead of the original index would actually be caught.
+const interleavedLegs = [
+  { label: 'Leg 0 (won)', americanOdds: -110, status: 'won' },
+  { label: 'Leg 1 (live)', americanOdds: -110, status: 'live', hedgeAmericanOdds: 150 },
+  { label: 'Leg 2 (won)', americanOdds: -110, status: 'won' },
+  { label: 'Leg 3 (live)', americanOdds: -110, status: 'live', hedgeAmericanOdds: 150 },
+];
+const interleaved = analyze({ stake: 10, legs: interleavedLegs });
+ok('legIndex on hedges matches original position (1, not 0)',
+  interleaved.hedges[0].legIndex === 1);
+ok('legIndex on hedges matches original position (3, not 1)',
+  interleaved.hedges[1].legIndex === 3);
+ok('legIndex on thresholds matches original position (1, not 0)',
+  interleaved.thresholds[0].legIndex === 1);
+ok('legIndex on thresholds matches original position (3, not 1)',
+  interleaved.thresholds[1].legIndex === 3);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
