@@ -18,6 +18,27 @@ between visits.
 Live legs need two prices because they are two different things: the odds you
 locked in determine the payout, and today's opposing odds determine the hedge.
 
+### Legs you're confident about
+
+Any live leg has a **"Treat as won (not final)"** checkbox. Tick it for a leg
+you're confident in but that hasn't formally settled — a three-score lead late
+in the fourth — and the analysis proceeds as if it had already won: its booked
+odds still count toward the payout, but it stops asking you for a hedge price
+and drops out of the outcome table.
+
+The leg stays Live underneath. Unticking restores everything, including any
+hedge odds you'd typed.
+
+This is what gets you a usable hedge number *before* the last game locks,
+rather than only once everything else has settled. In the worked example below,
+hedging both live legs outright guarantees $16.50 — but assuming one of them
+holds shows $69.50 available on the other.
+
+**Anything computed this way is labelled "Projected"** and names the legs being
+assumed, because it is only guaranteed if they actually hit. That includes the
+win case: assume every remaining leg and you get "Projected win", never the
+real "Parlay won".
+
 ## What it tells you
 
 If every leg has already settled, you just get a plain "already dead" or
