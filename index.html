@@ -32,6 +32,10 @@
   th { color:var(--dim); font-weight:500; }
   td.num { text-align:right; font-variant-numeric:tabular-nums; }
   .note { font-size:12px; color:var(--dim); margin-top:10px; }
+  .note.assumed { color:var(--warn); }
+  .check { display:flex; align-items:center; gap:8px; margin:0;
+           padding:4px 0; font-size:13px; color:var(--text); cursor:pointer; }
+  .check input { width:18px; height:18px; flex:0 0 auto; padding:0; }
   .hidden { display:none; }
 </style>
 </head>
@@ -72,6 +76,10 @@ function addLeg(label = '', odds = '', status = 'live') {
         <option value="won">Won</option>
         <option value="lost">Lost</option>
       </select></div>
+    <div class="full assume-box">
+      <label class="check"><input type="checkbox" class="leg-assume">
+        Treat as won (not final)</label>
+    </div>
     <div class="full hedge-box">
       <div class="row2">
         <div><label>Odds to bet against it now</label>
@@ -90,9 +98,15 @@ function addLeg(label = '', odds = '', status = 'live') {
   wrap.querySelector('.remove').onclick = () => wrap.remove();
   const sync = () => {
     const live = wrap.querySelector('.leg-status').value === 'live';
-    wrap.querySelector('.hedge-box').classList.toggle('hidden', !live);
+    const assumed = wrap.querySelector('.leg-assume').checked;
+    wrap.querySelector('.assume-box').classList.toggle('hidden', !live);
+    // Assuming a leg won means we're not hedging it, so its hedge inputs go
+    // away exactly as a genuinely-won leg's do. Values typed there survive,
+    // since hiding doesn't clear them.
+    wrap.querySelector('.hedge-box').classList.toggle('hidden', !live || assumed);
   };
   wrap.querySelector('.leg-status').onchange = sync;
+  wrap.querySelector('.leg-assume').onchange = sync;
   sync();
   legsEl.appendChild(wrap);
 }
@@ -115,24 +129,61 @@ function readLegs() {
     status: row.querySelector('.leg-status').value,
     hedgeAmericanOdds: Number(row.querySelector('.leg-hedge').value),
     hedgeable: row.querySelector('.leg-hedgeable').value === 'yes',
+    // Only honoured while the leg is still live, so a checkbox left over from
+    // a leg since switched to Won or Lost can't influence anything.
+    assumeWin:
+      row.querySelector('.leg-status').value === 'live' &&
+      row.querySelector('.leg-assume').checked,
   }));
 }
 
-function render(result, legs) {
+function render(result, legs, assumed = []) {
   const box = document.getElementById('results');
   box.classList.remove('hidden');
 
+  // Every result computed while a leg is merely assumed is conditional on that
+  // leg actually hitting, so it must never be worded like a real guarantee.
+  // The won case matters most: assuming every remaining live leg legitimately
+  // makes analyze() return 'won', but nothing has actually finished.
+  const projected = assumed.length > 0;
   const headline = {
-    guaranteed: [`Guaranteed profit: ${money(result.floor)}`, 'good'],
-    'reduces-downside': ['No guarantee — but hedging cuts your downside', 'warn'],
-    'no-hedge': ['No guaranteed profit. Don\'t hedge.', 'bad'],
+    guaranteed: [
+      projected
+        ? `Projected guaranteed profit: ${money(result.floor)}`
+        : `Guaranteed profit: ${money(result.floor)}`,
+      'good',
+    ],
+    'reduces-downside': [
+      projected
+        ? 'Projected — no guarantee, but hedging cuts your downside'
+        : 'No guarantee — but hedging cuts your downside',
+      'warn',
+    ],
+    'no-hedge': [
+      projected
+        ? 'Projected — no guaranteed profit. Don\'t hedge.'
+        : 'No guaranteed profit. Don\'t hedge.',
+      'bad',
+    ],
     dead: ['This parlay is already dead.', 'bad'],
-    won: [`Parlay won: ${money(result.floor)} profit.`, 'good'],
+    won: [
+      projected
+        ? `Projected win: ${money(result.floor)} profit.`
+        : `Parlay won: ${money(result.floor)} profit.`,
+      'good',
+    ],
   }[result.verdict];
 
   let html = `<div class="card">
     <div class="verdict ${headline[1]}">${headline[0]}</div>
     <div class="note">Full payout if it all hits: ${money(result.payout)}</div>`;
+
+  // Suppressed for 'dead': a leg has actually lost, so the assumptions are moot.
+  if (projected && result.verdict !== 'dead') {
+    html += `<div class="note assumed">Assumes these still-live legs hit:
+      ${assumed.map((l) => esc(l.label)).join(', ')}. Nothing above is locked
+      in until they actually do.</div>`;
+  }
 
   if (result.verdict === 'reduces-downside') {
     html += `<div class="note">Worst case with the hedge: ${money(result.floor)},
@@ -216,7 +267,11 @@ document.getElementById('analyze').onclick = () => {
     if (!(stake > 0)) throw new Error('Enter a stake above zero.');
     const legs = readLegs();
     if (!legs.length) throw new Error('Add at least one leg.');
-    render(analyze({ stake, legs }), legs);
+    // Substitute assumed legs as won for the computation only; the on-screen
+    // leg list keeps its real statuses so unchecking restores everything.
+    const assumed = legs.filter((l) => l.assumeWin);
+    const computed = legs.map((l) => (l.assumeWin ? { ...l, status: 'won' } : l));
+    render(analyze({ stake, legs: computed }), computed, assumed);
   } catch (err) {
     const box = document.getElementById('results');
     box.classList.remove('hidden');
