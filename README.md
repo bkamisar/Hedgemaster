@@ -12,8 +12,8 @@ between visits.
    them — the boosted number if it was boosted.
 2. Optionally, enter the **cash-out offer** your book is showing.
 3. Add each **open leg** — only the ones still to be decided. For each, enter
-   the odds available *right now* on the opposite side, or mark it "No line"
-   if there's nothing to bet against it with.
+   the odds available *right now* on "the other side" (the bet against that
+   leg), or mark it "No line" if there's nothing to bet against it with.
 4. Hit Analyze.
 
 Legs that already hit don't need entering: they're baked into your total odds.
@@ -48,29 +48,45 @@ win.
 There are three possible answers, and the difference between the last two
 matters:
 
-| Verdict | Meaning |
+| Headline | Meaning |
 |---|---|
-| **Guaranteed profit** | Stake as shown and you profit in every outcome. |
-| **No guarantee, but cuts your downside** | You cannot lock in a profit, but hedging still shrinks the worst case below losing your full stake. |
-| **Don't hedge** | No hedge helps: your prices imply 100% or more, or the best hedge you can actually place (stakes come in $0.50 steps) is no better than sitting out, or a leg has no line. |
+| **You can lock in at least $X** | Place the hedge bets as shown and you profit in every outcome. |
+| **Hedging can't guarantee a profit, but it can limit your loss** | You cannot lock in a profit, but hedging still shrinks the worst case below losing your full stake. |
+| **Hedging won't help here** | No hedge helps: your prices imply 100% or more, or the best hedge you can actually place (stakes come in $0.50 steps) is no better than sitting out, or a leg has no line. |
+
+The app only lays out options; it never tells you to bet. When legs are treated
+as won, each headline is prefixed "Projected:".
+
+The hedge bets are listed under **To hedge, place these bets** (bet against, at
+odds, stake), and **What happens in each case** shows the result of every
+combination of legs losing, as profit or loss against your original stake.
 
 It also reports the price you would need on each leg for a guarantee to
 appear — including the common case of "once this is down to one leg."
 
-### Cash out or hedge?
+### Your options right now
 
-Enter your book's cash-out offer and the app sets it against the best hedge.
-Both are amounts you'd walk away with for certain, so no guessing about
-outcomes is involved: it tells you which locks in more, and by how much. When
-no hedge can guarantee anything, cashing out is your only guaranteed exit, and
-it says so.
+Once you have results, a **Your options right now** table sets the choices side
+by side, all as profit or loss against your original stake:
+
+- **Let it ride** — the profit if every leg hits, or the loss of your stake if
+  any leg loses.
+- **Cash out now** — shown when you enter your book's cash-out offer.
+- **Hedge** — what the best hedge locks in, or why it isn't available. If you
+  haven't entered a price for every open leg, it asks for them rather than
+  claiming there's no line.
+
+Cashing out and hedging are both amounts you'd walk away with for certain, so
+no guessing about outcomes is involved: it tells you which locks in more, and
+by how much. When no hedge can guarantee anything, cashing out is your only
+guaranteed exit, and it says so.
 
 Hedging means placing every recommended bet at the quoted prices before they
 move; cashing out is one tap. A thin edge for hedging may not be worth it.
 
-The comparison is switched off while any leg is treated as won: the cash-out
+The options table is switched off while any leg is treated as won: the cash-out
 offer still prices in the chance those legs miss, and the projected hedge
-doesn't.
+doesn't. If you entered an offer, the card says why it's missing.
 
 ## The short version of the math
 
