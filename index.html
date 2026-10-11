@@ -147,6 +147,13 @@
 </div>
 
 <div class="card">
+  <strong>How this works</strong>
+  <div class="note">Enter your parlay, then the legs still undecided. Hedgemaster
+    shows whether betting against those legs can lock in a profit, and compares
+    that with cashing out. It never tells you to bet — it lays out your options.</div>
+</div>
+
+<div class="card">
   <div class="row2">
     <div><label for="stake">Stake ($)</label>
       <input id="stake" type="number" value="10" min="0" step="0.01"></div>
@@ -186,17 +193,19 @@ function addLeg(label = '') {
     <div class="full">
       <label class="check"><input type="checkbox" class="leg-assume">
         Treat as won (not final)</label>
+      <div class="note">Tick if you're confident it will hit — you'll see the hedge for the remaining legs, marked Projected.</div>
     </div>
     <div class="full hedge-box">
       <div class="row2">
-        <div><label>Odds against it now</label>
+        <div><label>Odds on the other side</label>
           <input class="leg-hedge" type="number" placeholder="+150"></div>
-        <div><label>Available?</label>
+        <div><label>Can you bet the other side?</label>
           <select class="leg-hedgeable">
-            <option value="yes">Can bet it</option>
+            <option value="yes">Yes</option>
             <option value="no">No line</option>
           </select></div>
       </div>
+      <div class="note">To hedge this leg you'd bet against it. Enter the odds your book offers for that bet.</div>
     </div>
     <div class="full"><button class="remove">Remove leg</button></div>`;
   wrap.querySelector('.leg-label').value = label;
@@ -223,6 +232,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[c]));
 const money = (n) => (n < 0 ? '-$' : '$') + Math.abs(n).toFixed(2);
+const signed = (n) => (n < 0 ? '-$' : '+$') + Math.abs(n).toFixed(2);
 const american = (n) => (n > 0 ? '+' : '') + n;
 
 function readLegs() {
@@ -249,23 +259,22 @@ function render(result, legs, assumed = [], ctx = {}) {
   // all hedge stakes -- typically far worse than the floor shown, and worse
   // than not hedging at all. No copy below may imply otherwise.
   const assumedMissWorst = -(result.stake + result.totalHedgeStake);
+  // Under an assumption every headline is prefixed "Projected: " and its first
+  // letter lower-cased; the won case has its own wording.
+  const proj = (s) => 'Projected: ' + s.charAt(0).toLowerCase() + s.slice(1);
   const headline = {
     guaranteed: [
-      projected
-        ? `Projected guaranteed profit: ${money(result.floor)}`
-        : `Guaranteed profit: ${money(result.floor)}`,
+      (projected ? proj : (s) => s)(
+        `You can lock in at least ${money(result.floor)}`),
       'good',
     ],
     'reduces-downside': [
-      projected
-        ? 'Projected — no guarantee, but hedging cuts your downside'
-        : 'No guarantee — but hedging cuts your downside',
+      (projected ? proj : (s) => s)(
+        'Hedging can\'t guarantee a profit, but it can limit your loss'),
       'warn',
     ],
     'no-hedge': [
-      projected
-        ? 'Projected — no guaranteed profit. Don\'t hedge.'
-        : 'No guaranteed profit. Don\'t hedge.',
+      (projected ? proj : (s) => s)('Hedging won\'t help here'),
       'bad',
     ],
     won: [
@@ -275,6 +284,15 @@ function render(result, legs, assumed = [], ctx = {}) {
       'good',
     ],
   }[result.verdict];
+
+  // A blank hedge-price field also makes analyze() report 'unhedgeable' with
+  // nothing locked in, but that is "not typed yet", not "can't be hedged" --
+  // claiming cashing out is the only exit, or that there is no line, would be
+  // unfounded. Only an explicit "No line" leg establishes that.
+  const blankOnly = result.reason === 'unhedgeable'
+    && legs.some((l) => l.hedgeable !== false
+      && !(Number.isFinite(l.hedgeAmericanOdds) && Math.abs(l.hedgeAmericanOdds) >= 100))
+    && !legs.some((l) => l.hedgeable === false);
 
   let html = `<div class="card">
     <div class="verdict ${headline[1]}">${headline[0]}</div>
@@ -294,6 +312,11 @@ function render(result, legs, assumed = [], ctx = {}) {
       ${downside}. Nothing above is locked in until they actually land.</div>`;
   }
 
+  if (result.verdict === 'guaranteed' && !projected) {
+    html += `<div class="note">Place the bets below and you make at least
+      ${money(result.floor)} however the games go. You don't have to — this is
+      just what's possible.</div>`;
+  }
   if (result.verdict === 'reduces-downside') {
     // Unprojected, both figures are unconditional and directly comparable.
     // Projected, the floor is conditional on the assumed legs landing while
@@ -303,8 +326,9 @@ function render(result, legs, assumed = [], ctx = {}) {
       ? `<div class="note">If the assumed legs hit, worst case is
          ${money(result.floor)} versus ${money(-result.stake)} unhedged. If
          they don't, see above — hedging costs you more than sitting out.</div>`
-      : `<div class="note">Worst case with the hedge: ${money(result.floor)},
-         versus ${money(-result.stake)} if you do nothing.</div>`;
+      : `<div class="note">If you place the bets below, the most you can lose is
+         ${money(-result.floor)} instead of ${money(result.stake)}. You don't
+         have to.</div>`;
   }
   if (result.verdict === 'no-hedge' && result.reason === 'unhedgeable') {
     // Distinguish "you told me this leg has no line" from "you haven't
@@ -328,104 +352,121 @@ function render(result, legs, assumed = [], ctx = {}) {
       out.</div>`;
   } else if (result.verdict === 'no-hedge') {
     html += `<div class="note">Your hedge prices imply
-      ${(result.impliedTotal * 100).toFixed(1)}% — above 100%, so no stake
+      ${(result.impliedTotal * 100).toFixed(1)}% — above 100%, so no set of bets
       improves your worst case.</div>`;
   }
   html += `</div>`;
 
-  // A blank hedge-price field also makes analyze() report 'unhedgeable' with
-  // nothing locked in, but that is "not typed yet", not "can't be hedged" --
-  // claiming cashing out is the only exit would be unfounded. Only an explicit
-  // "No line" leg establishes that.
-  const blankOnly = result.reason === 'unhedgeable'
-    && legs.some((l) => l.hedgeable !== false
-      && !(Number.isFinite(l.hedgeAmericanOdds) && Math.abs(l.hedgeAmericanOdds) >= 100))
-    && !legs.some((l) => l.hedgeable === false);
+  const hasHedge = result.hedges.some((h) => h.stake > 0);
 
-  if (result.cashOut && blankOnly) {
-    html += `<div class="card"><strong>Cash out or hedge?</strong>
-      <div class="note">Enter the price against every open leg to compare.</div></div>`;
-  } else if (result.cashOut) {
-    const { offer, hedgeReturn, edge } = result.cashOut;
-    const placed = result.hedges.filter((h) => h.stake > 0).length;
-    let line;
-    if (hedgeReturn <= 0) {
-      line = `Hedging can't lock anything in here, so cashing out is your only
-        guaranteed exit.`;
-    } else if (Math.abs(edge) < 0.005) {
-      line = 'About even.';
-    } else if (edge > 0) {
-      line = `Hedging locks in ${money(edge)} more${placed >= 2
-        ? ', and pays beyond that if two or more of these legs miss' : ''}.`;
+  if (!projected && result.verdict !== 'won') {
+    // Every figure is profit/loss against the original stake, so the three
+    // options are directly comparable.
+    let hedgeCell;
+    if (hasHedge) {
+      const placed = result.hedges.filter((h) => h.stake > 0).length;
+      hedgeCell = `${signed(result.floor)} locked in${placed >= 2
+        ? ' (more if two or more of these legs lose)' : ''}`;
+    } else if (blankOnly) {
+      hedgeCell = 'Enter the odds on the other side of every open leg to see this';
     } else {
-      line = `Cashing out locks in ${money(-edge)} more than the best hedge.`;
+      hedgeCell = 'Not available — no hedge beats sitting out';
     }
-    // The effort caveat only makes sense when there are hedges to place.
-    const friction = placed > 0
-      ? ` Hedging means placing every bet below at those prices before they
-         move; cashing out is one tap.`
-      : '';
-    html += `<div class="card"><strong>Cash out or hedge?</strong>
+    html += `<div class="card"><strong>Your options right now</strong>
       <table>
-        <tr><td>Cash out now</td><td class="num">${money(offer)}</td></tr>
-        <tr><td>Hedge locks in</td><td class="num">${money(hedgeReturn)}</td></tr>
-      </table>
-      <div class="note">${line} Both are what you walk away with from
-        here.${friction}</div></div>`;
-  } else if (ctx.cashOutEntered && assumed.length > 0) {
+        <tr><td>Let it ride</td><td class="num">${signed(result.payout - result.stake)}
+          if every leg hits; ${signed(-result.stake)} if any leg loses</td></tr>`;
+    if (result.cashOut) {
+      html += `<tr><td>Cash out now</td><td class="num">${signed(result.cashOut.offer - result.stake)}
+          locked in</td></tr>`;
+    }
+    html += `<tr><td>Hedge</td><td class="num">${hedgeCell}</td></tr>
+      </table>`;
+    if (result.cashOut && !blankOnly) {
+      const { hedgeReturn, edge } = result.cashOut;
+      let line;
+      if (hedgeReturn <= 0) {
+        line = `Hedging can't lock anything in here, so cashing out is your only
+          guaranteed exit.`;
+      } else if (Math.abs(edge) < 0.005) {
+        line = 'About even.';
+      } else if (edge > 0) {
+        line = `Hedging locks in ${money(edge)} more than cashing out.`;
+      } else {
+        line = `Cashing out locks in ${money(-edge)} more than the best hedge.`;
+      }
+      // The effort caveat only makes sense when there are hedges to place.
+      const friction = hasHedge
+        ? ` Hedging means placing every bet below at those prices before they
+           move; cashing out is one tap.`
+        : '';
+      html += `<div class="note">${line}${friction}</div>`;
+    }
+    html += `</div>`;
+  } else if (projected && ctx.cashOutEntered) {
     // The offer is priced on the real bet, risk of the assumed legs included;
     // the projected hedge isn't, so setting them side by side would flatter
     // hedging. Say why the comparison is missing rather than dropping it.
-    html += `<div class="card"><strong>Cash out or hedge?</strong>
+    html += `<div class="card"><strong>Your options right now</strong>
       <div class="note">Off while legs are treated as won: the cash-out offer
         still prices in the chance those legs miss, and the projected hedge
         doesn't, so comparing them would make hedging look better than it
         is.</div></div>`;
   }
 
-  if (result.hedges.some((h) => h.stake > 0)) {
-    html += `<div class="card"><strong>Bet these now</strong>
-      <table><tr><th>Against</th><th>Price</th><th class="num">Stake</th></tr>`;
+  if (hasHedge) {
+    html += `<div class="card"><strong>To hedge, place these bets</strong>
+      <table><tr><th>Bet against</th><th>At odds</th><th class="num">Stake</th></tr>`;
     result.hedges.forEach((h) => {
       html += `<tr><td>${esc(h.label)}</td><td>${american(h.americanOdds)}</td>
         <td class="num">${money(h.stake)}</td></tr>`;
     });
     html += `<tr><td colspan="2"><strong>Total</strong></td>
       <td class="num"><strong>${money(result.totalHedgeStake)}</strong></td></tr></table>
-      <div class="note">Each stake is sized so that whichever
-      ${projected ? 'of the legs above' : 'leg'} busts, that bet alone returns
-      your entire parlay payout.</div></div>`;
+      <div class="note">Each bet is on the opposite side of a leg you still need,
+      so it pays off if that leg loses. They're separate bets — place each at
+      your book. Each is sized so that whichever one
+      ${projected ? 'of the legs above' : 'of these legs'} loses, that bet alone
+      pays back your whole parlay payout (${money(result.payout)}).</div></div>`;
   }
 
   if (result.scenarios.length) {
+    const joinLabels = (names) => {
+      const e = names.map(esc);
+      return e.length === 1 ? e[0]
+        : e.slice(0, -1).join(', ') + ' and ' + e[e.length - 1];
+    };
     html += `<div class="card"><strong>${projected
-      ? 'Every outcome if the assumed legs hit' : 'Every outcome'}</strong>
-      <table><tr><th>If these miss</th><th class="num">Profit</th>
-      <th class="num">From here</th></tr>`;
+      ? 'What happens in each case if the assumed legs hit'
+      : 'What happens in each case'}</strong>
+      <table><tr><th>If</th><th class="num">You end up</th></tr>`;
     result.scenarios.forEach((s) => {
-      const who = s.missing.length
-        ? s.missing.map(esc).join(', ')
-        : 'nothing — all hit';
+      const who = s.missing.length === 0
+        ? 'Every leg hits'
+        : s.missing.length === 1
+          ? `${esc(s.missing[0])} loses`
+          : `${joinLabels(s.missing)} lose`;
       const cls = s.profit >= 0 ? 'good' : 'bad';
       html += `<tr><td>${who}</td>
-        <td class="num ${cls}">${money(s.profit)}</td>
-        <td class="num">${money(s.profitFromHere)}</td></tr>`;
+        <td class="num ${cls}">${signed(s.profit)}</td></tr>`;
     });
     // The branch analyze() can't see, restored explicitly: a table headed
     // "every outcome" must not quietly omit the only losing one.
     if (projected) {
-      html += `<tr><td>an assumed leg misses</td>
-        <td class="num bad">${money(assumedMissWorst)}</td>
-        <td class="num">${money(assumedMissWorst + result.stake)}</td></tr>`;
+      html += `<tr><td>An assumed leg loses</td>
+        <td class="num bad">${signed(assumedMissWorst)}</td></tr>`;
     }
-    html += `</table><div class="note">"Profit" is net of your original
-      ${money(result.stake)} stake; "from here" treats that stake as already
-      spent.</div></div>`;
+    html += `</table><div class="note">Profit or loss compared with your original
+      ${money(result.stake)} stake.</div></div>`;
   }
 
   if (result.thresholds.length) {
-    html += `<div class="card"><strong>Prices to watch</strong><table>
-      <tr><th>Leg</th><th class="num">Need now</th><th class="num">If last leg</th></tr>`;
+    html += `<div class="card"><strong>What would make hedging worth it</strong>
+      <div class="note">The odds you'd need to see on the other side of each leg
+        for hedging to lock in a profit. Compare them with what your book
+        shows.</div>
+      <table>
+      <tr><th>Leg</th><th class="num">Needed now</th><th class="num">If it were your last open leg</th></tr>`;
     result.thresholds.forEach((t) => {
       const now = t.requiredAmerican === null
         ? 'impossible' : 'better than ' + american(t.requiredAmerican);
@@ -434,8 +475,8 @@ function render(result, legs, assumed = [], ctx = {}) {
       html += `<tr><td>${esc(t.label)}</td><td class="num">${now}</td>
         <td class="num">${last}</td></tr>`;
     });
-    html += `</table><div class="note">"If last leg" assumes the other
-      undecided legs hit first — usually the moment a guarantee appears${projected
+    html += `</table><div class="note">"If it were your last open leg" assumes your
+      other open legs hit first — usually when a real guarantee appears${projected
         ? ' (a projected one, if the assumed legs hit)' : ''}.</div></div>`;
   }
 
