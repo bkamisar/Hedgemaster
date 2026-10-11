@@ -90,6 +90,7 @@
   .legno::before { content:"— LEG " counter(leg) " —"; display:block;
                    font-size:9.5px; letter-spacing:.2em; color:var(--faint); }
   .row2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  label.spaced { margin-top:14px; }
 
   /* ---- buttons: ink block with a hard offset, no blur ---- */
   button { font:700 11px/1 inherit; letter-spacing:.16em; text-transform:uppercase;
@@ -146,11 +147,22 @@
 </div>
 
 <div class="card">
-  <label for="stake">Original stake ($)</label>
-  <input id="stake" type="number" value="10" min="0" step="0.01">
+  <div class="row2">
+    <div><label for="stake">Stake ($)</label>
+      <input id="stake" type="number" value="10" min="0" step="0.01"></div>
+    <div><label for="totalOdds">Total odds</label>
+      <input id="totalOdds" type="number" placeholder="+1228"></div>
+  </div>
+  <div class="note">Total odds exactly as your slip shows them — the boosted
+    number if it was boosted.</div>
+  <label for="cashOut" class="spaced">Cash-out offer ($) · optional</label>
+  <input id="cashOut" type="number" min="0" step="0.01" placeholder="Leave blank if none">
 </div>
 
 <div class="card">
+  <strong>Open legs</strong>
+  <div class="note">Only the legs still to be decided — the ones that already
+    hit are baked into your total odds.</div>
   <div id="legs"></div>
   <button id="addLeg">+ Add leg</button>
 </div>
@@ -163,22 +175,14 @@
 <script>
 const legsEl = document.getElementById('legs');
 
-function addLeg(label = '', odds = '', status = 'live') {
+function addLeg(label = '') {
   const wrap = document.createElement('div');
   wrap.className = 'leg';
   wrap.innerHTML = `
     <div class="full legno"></div>
     <div class="full"><label>Description</label>
       <input class="leg-label" placeholder="e.g. Chiefs ML"></div>
-    <div><label>Your odds</label>
-      <input class="leg-odds" type="number" placeholder="-110"></div>
-    <div><label>Status</label>
-      <select class="leg-status">
-        <option value="live">Live</option>
-        <option value="won">Won</option>
-        <option value="lost">Lost</option>
-      </select></div>
-    <div class="full assume-box">
+    <div class="full">
       <label class="check"><input type="checkbox" class="leg-assume">
         Treat as won (not final)</label>
     </div>
@@ -195,27 +199,20 @@ function addLeg(label = '', odds = '', status = 'live') {
     </div>
     <div class="full"><button class="remove">Remove leg</button></div>`;
   wrap.querySelector('.leg-label').value = label;
-  wrap.querySelector('.leg-odds').value = odds;
-  wrap.querySelector('.leg-status').value = status;
   wrap.querySelector('.remove').onclick = () => wrap.remove();
+  // Assuming a leg won means we're not hedging it, so its hedge inputs go
+  // away. Values typed there survive, since hiding doesn't clear them.
   const sync = () => {
-    const live = wrap.querySelector('.leg-status').value === 'live';
-    const assumed = wrap.querySelector('.leg-assume').checked;
-    wrap.querySelector('.assume-box').classList.toggle('hidden', !live);
-    // Assuming a leg won means we're not hedging it, so its hedge inputs go
-    // away exactly as a genuinely-won leg's do. Values typed there survive,
-    // since hiding doesn't clear them.
-    wrap.querySelector('.hedge-box').classList.toggle('hidden', !live || assumed);
+    wrap.querySelector('.hedge-box').classList.toggle(
+      'hidden', wrap.querySelector('.leg-assume').checked);
   };
-  wrap.querySelector('.leg-status').onchange = sync;
   wrap.querySelector('.leg-assume').onchange = sync;
   sync();
   legsEl.appendChild(wrap);
 }
 
 document.getElementById('addLeg').onclick = () => addLeg();
-addLeg('', '-110', 'won');
-addLeg('', '-110', 'live');
+addLeg();
 
 document.getElementById('slipNo').textContent =
   String(Math.floor(Math.random() * 1e6)).padStart(6, '0');
@@ -230,19 +227,13 @@ const american = (n) => (n > 0 ? '+' : '') + n;
 function readLegs() {
   return [...legsEl.querySelectorAll('.leg')].map((row) => ({
     label: row.querySelector('.leg-label').value.trim() || 'Leg',
-    americanOdds: Number(row.querySelector('.leg-odds').value),
-    status: row.querySelector('.leg-status').value,
     hedgeAmericanOdds: Number(row.querySelector('.leg-hedge').value),
     hedgeable: row.querySelector('.leg-hedgeable').value === 'yes',
-    // Only honoured while the leg is still live, so a checkbox left over from
-    // a leg since switched to Won or Lost can't influence anything.
-    assumeWin:
-      row.querySelector('.leg-status').value === 'live' &&
-      row.querySelector('.leg-assume').checked,
+    assumeWin: row.querySelector('.leg-assume').checked,
   }));
 }
 
-function render(result, legs, assumed = []) {
+function render(result, legs, assumed = [], ctx = {}) {
   const box = document.getElementById('results');
   box.classList.remove('hidden');
 
@@ -276,7 +267,6 @@ function render(result, legs, assumed = []) {
         : 'No guaranteed profit. Don\'t hedge.',
       'bad',
     ],
-    dead: ['This parlay is already dead.', 'bad'],
     won: [
       projected
         ? `Projected win: ${money(result.floor)} profit.`
@@ -287,10 +277,10 @@ function render(result, legs, assumed = []) {
 
   let html = `<div class="card">
     <div class="verdict ${headline[1]}">${headline[0]}</div>
-    <div class="note">Full payout if it all hits: ${money(result.payout)}</div>`;
+    <div class="note">Payout at ${american(ctx.totalOdds)}:
+      ${money(result.payout)} — should match your slip.</div>`;
 
-  // Suppressed for 'dead': a leg has actually lost, so the assumptions are moot.
-  if (projected && result.verdict !== 'dead') {
+  if (projected) {
     // Only speak of hedges dying when hedges are actually being recommended;
     // with none placed, the downside is just the stake and there is nothing
     // for it to be "worse than not hedging" than.
@@ -320,8 +310,7 @@ function render(result, legs, assumed = []) {
     // entered odds yet" and name the specific leg(s) -- with 2+ live legs a
     // single generic sentence leaves the user unable to tell which input is
     // the problem, and the two causes need different fixes from the user.
-    const liveLegs = legs.filter((l) => l.status === 'live');
-    const issues = liveLegs
+    const issues = legs
       .map((l) => {
         const validOdds =
           Number.isFinite(l.hedgeAmericanOdds) && Math.abs(l.hedgeAmericanOdds) >= 100;
@@ -337,6 +326,44 @@ function render(result, legs, assumed = []) {
       improves your worst case.</div>`;
   }
   html += `</div>`;
+
+  if (result.cashOut) {
+    const { offer, hedgeReturn, edge } = result.cashOut;
+    const placed = result.hedges.filter((h) => h.stake > 0).length;
+    let line;
+    if (hedgeReturn <= 0) {
+      line = `Hedging can't lock anything in here, so cashing out is your only
+        guaranteed exit.`;
+    } else if (Math.abs(edge) < 0.005) {
+      line = 'About even.';
+    } else if (edge > 0) {
+      line = `Hedging locks in ${money(edge)} more${placed >= 2
+        ? ', and pays beyond that if two or more of these legs miss' : ''}.`;
+    } else {
+      line = `Cashing out locks in ${money(-edge)} more than the best hedge.`;
+    }
+    // The effort caveat only makes sense when there are hedges to place.
+    const friction = placed > 0
+      ? ` Hedging means placing every bet below at those prices before they
+         move; cashing out is one tap.`
+      : '';
+    html += `<div class="card"><strong>Cash out or hedge?</strong>
+      <table>
+        <tr><td>Cash out now</td><td class="num">${money(offer)}</td></tr>
+        <tr><td>Hedge, guaranteed</td><td class="num">${money(hedgeReturn)}</td></tr>
+      </table>
+      <div class="note">${line} Both are what you walk away with from
+        here.${friction}</div></div>`;
+  } else if (ctx.cashOutEntered && assumed.length > 0) {
+    // The offer is priced on the real bet, risk of the assumed legs included;
+    // the projected hedge isn't, so setting them side by side would flatter
+    // hedging. Say why the comparison is missing rather than dropping it.
+    html += `<div class="card"><strong>Cash out or hedge?</strong>
+      <div class="note">Off while legs are treated as won: the cash-out offer
+        still prices in the chance those legs miss, and the projected hedge
+        doesn't, so comparing them would make hedging look better than it
+        is.</div></div>`;
+  }
 
   if (result.hedges.some((h) => h.stake > 0)) {
     html += `<div class="card"><strong>Bet these now</strong>
@@ -400,23 +427,35 @@ document.getElementById('analyze').onclick = () => {
   try {
     const stake = Number(document.getElementById('stake').value);
     if (!(stake > 0)) throw new Error('Enter a stake above zero.');
+    const totalOdds = Number(document.getElementById('totalOdds').value);
+    // A blank field means "no offer", not a $0 offer -- Number('') is 0.
+    const cashOutRaw = document.getElementById('cashOut').value.trim();
+    const cashOut = cashOutRaw === '' ? null : Number(cashOutRaw);
+    if (cashOut !== null && !(cashOut >= 0)) {
+      throw new Error('Enter the cash-out offer as a dollar amount, or leave it blank.');
+    }
     const legs = readLegs();
-    if (!legs.length) throw new Error('Add at least one leg.');
-    // Substitute assumed legs as won for the computation only; the on-screen
-    // leg list keeps its real statuses so unchecking restores everything.
+    if (!legs.length) throw new Error('Add at least one open leg.');
+    // Legs treated as won simply drop out of the hedge set; the on-screen
+    // list is untouched, so unchecking restores everything.
     const assumed = legs.filter((l) => l.assumeWin);
-    const computed = legs.map((l) => (l.assumeWin ? { ...l, status: 'won' } : l));
-    render(analyze({ stake, legs: computed }), computed, assumed);
+    const open = legs.filter((l) => !l.assumeWin);
+    const result = analyze({
+      stake,
+      totalOdds,
+      legs: open,
+      // Withheld under assumptions -- see the cash-out card in render().
+      cashOut: assumed.length ? null : cashOut,
+    });
+    render(result, open, assumed, { totalOdds, cashOutEntered: cashOut !== null });
   } catch (err) {
     const box = document.getElementById('results');
     box.classList.remove('hidden');
-    // americanToDecimal's own error ("Invalid American odds: 0") is correct
-    // but reads like a bug report -- most triggers of it here are a leg's
-    // OWN odds field (not the hedge-odds field, which analyze() already
-    // handles gracefully) being blank or out of range, so give a plain-
-    // language nudge instead of leaking the internal message.
+    // Hedge odds are already gated inside analyze(), so the only field that
+    // can raise this is total odds -- name it rather than leak the internal
+    // message.
     const message = /Invalid American odds/.test(err.message)
-      ? 'Check that every leg has valid odds entered (e.g. -110 or +150) -- American odds must be 100 or more, in either direction.'
+      ? 'Enter the parlay\'s total odds exactly as your slip shows them (e.g. +1228) -- American odds must be 100 or more, in either direction.'
       : err.message;
     box.innerHTML =
       `<div class="card"><div class="verdict bad">${esc(message)}</div></div>`;
