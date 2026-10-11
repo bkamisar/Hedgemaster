@@ -445,9 +445,18 @@ function render(result, legs, assumed = [], ctx = {}) {
       return e.length === 1 ? e[0]
         : e.slice(0, -1).join(', ') + ' and ' + e[e.length - 1];
     };
-    html += `<div class="card"><strong>${projected
-      ? 'What happens in each case if the assumed legs hit'
-      : 'What happens in each case'}</strong>
+    // The title says whether these outcomes assume the hedge bets are placed.
+    const outcomesTitle = (hasHedge
+      ? (projected ? 'If you hedge and the assumed legs hit'
+        : 'If you place the hedge bets')
+      : (projected ? 'If you don\'t hedge and the assumed legs hit'
+        : 'If you don\'t hedge')) + ': what happens in each case';
+    const outcomesNote = hasHedge
+      ? 'Assumes you place every hedge bet above.'
+      : 'Nothing hedged, so this is just your parlay as it stands.';
+    html += `<div class="card"><strong>${outcomesTitle}</strong>
+      <div class="note">${outcomesNote} Profit or loss compared with your
+        original ${money(result.stake)} stake.</div>
       <table><tr><th>If</th><th class="num">You end up</th></tr>`;
     result.scenarios.forEach((s) => {
       const who = s.missing.length === 0
@@ -465,9 +474,7 @@ function render(result, legs, assumed = [], ctx = {}) {
       html += `<tr><td>An assumed leg loses</td>
         <td class="num bad">${signed(assumedMissWorst)}</td></tr>`;
     }
-    html += `</table><div class="note">Profit or loss compared with your original
-      ${money(result.stake)} stake${hasHedge
-        ? ', if you place all the hedge bets above' : ''}.</div></div>`;
+    html += `</table></div>`;
   }
 
   if (result.thresholds.length) {
