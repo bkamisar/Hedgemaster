@@ -66,6 +66,39 @@ function roundStake(amount, increment = 0.5) {
   return Math.round(amount / increment) * increment;
 }
 
+// Rounding each ideal stake independently to the nearest $0.50 can land on a
+// worse worst case than a neighbouring pair of grid points (rounding one leg
+// up while the other goes down, say). Try the floor and ceiling grid point for
+// every leg and keep the combination with the best worst case; on a tie the
+// smaller total stake wins, since it ties up less money for the same floor.
+function bestRoundedStakes({ payout, stake, decimalOdds, idealStakes, increment = 0.5 }) {
+  const candidates = idealStakes.map((ideal) => {
+    const lo = Math.floor(ideal / increment) * increment;
+    const hi = Math.ceil(ideal / increment) * increment;
+    return lo === hi ? [lo] : [lo, hi];
+  });
+
+  let best = null;
+  const walk = (i, chosen) => {
+    if (i === candidates.length) {
+      const hedges = chosen.map((s, j) => ({ stake: s, decimalOdds: decimalOdds[j] }));
+      const floor = worstCase({ payout, stake, hedges });
+      const total = chosen.reduce((sum, s) => sum + s, 0);
+      if (
+        best === null ||
+        floor > best.floor + 1e-9 ||
+        (Math.abs(floor - best.floor) <= 1e-9 && total < best.total)
+      ) {
+        best = { stakes: chosen, floor, total };
+      }
+      return;
+    }
+    candidates[i].forEach((s) => walk(i + 1, [...chosen, s]));
+  };
+  walk(0, []);
+  return best;
+}
+
 function hedgeThreshold({ payout, stake, otherDecimalOdds }) {
   const budget =
     1 - stake / payout - otherDecimalOdds.reduce((sum, c) => sum + 1 / c, 0);
@@ -141,9 +174,26 @@ function analyze({ stake, totalOdds, legs, cashOut = null }) {
   const decimalOdds = legs.map((leg) => americanToDecimal(leg.hedgeAmericanOdds));
   const solved = solveHedge({ payout, stake, decimalOdds });
 
+  const rounded = bestRoundedStakes({
+    payout,
+    stake,
+    decimalOdds,
+    idealStakes: solved.stakes,
+  });
+
+  // Hedging that is no better than sitting out is not worth placing, even
+  // though the prices imply under 100% on paper: at $0.50 steps the best
+  // placeable hedge can land at or below -stake.
+  let reason = null;
+  let stakes = rounded.stakes;
+  if (solved.impliedTotal < 1 && rounded.floor <= -stake + 1e-9) {
+    reason = 'rounding';
+    stakes = stakes.map(() => 0);
+  }
+
   const hedges = legs.map((leg, i) => ({
     label: leg.label,
-    stake: roundStake(solved.stakes[i]),
+    stake: stakes[i],
     americanOdds: leg.hedgeAmericanOdds,
   }));
 
@@ -177,11 +227,14 @@ function analyze({ stake, totalOdds, legs, cashOut = null }) {
   // it: solveHedge guarantees floor === -stake exactly whenever
   // impliedTotal >= 1, but a rounding-induced non-positive floor can also
   // occur when impliedTotal < 1 (a real hedge exists in theory, rounding
-  // just erased the guarantee) -- that case must classify as
-  // reduces-downside, not no-hedge. If solveHedge's invariant here ever
-  // changes, this classification needs to change with it.
+  // just erased the guarantee). If the best placeable hedge still leaves the
+  // floor above -stake, that is reduces-downside. But rounding can also push
+  // the floor to or below -stake; hedging that is no better than doing
+  // nothing must not be called "cuts your downside", so it is demoted to
+  // no-hedge with reason 'rounding' (stakes zeroed above). If solveHedge's
+  // invariant here ever changes, this classification needs to change with it.
   let verdict;
-  if (solved.impliedTotal >= 1) {
+  if (solved.impliedTotal >= 1 || reason === 'rounding') {
     verdict = 'no-hedge';
   } else if (floor > 0) {
     verdict = 'guaranteed';
@@ -192,6 +245,7 @@ function analyze({ stake, totalOdds, legs, cashOut = null }) {
   return finish({
     ...base,
     verdict,
+    reason,
     impliedTotal: solved.impliedTotal,
     floor,
     idealFloor: solved.floor,

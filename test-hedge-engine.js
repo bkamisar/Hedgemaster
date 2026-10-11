@@ -421,5 +421,78 @@ const onlyExit = analyze({ stake: 10, totalOdds: 1228, legs: twoOpen(-110), cash
 near('with no useful hedge, hedging locks in nothing', onlyExit.cashOut.hedgeReturn, 0, 1e-9);
 near('so the whole offer is the edge to cash out', onlyExit.cashOut.edge, -25, 1e-9);
 
+// Rounding must never leave the user worse off than sitting out while the app
+// calls it a downside cut. Nearest-$0.50 rounding of the ideal stakes gives
+// stakes [21.5, 124.5] and floor -10.66 here -- worse than the -10.00 of
+// doing nothing -- though the ideal floor (-9.87) is better. Searching the
+// neighbouring grid points finds [22, 124.5] at -10.234, still worse than
+// nothing, so the hedge is demoted to no-hedge with reason 'rounding'.
+const roundedOut = analyze({
+  stake: 10,
+  totalOdds: 1364,
+  legs: [
+    { label: 'A', hedgeAmericanOdds: 576 },
+    { label: 'B', hedgeAmericanOdds: -572 },
+  ],
+  cashOut: 5,
+});
+ok('rounding-erased hedge is no-hedge', roundedOut.verdict === 'no-hedge');
+ok('rounding-erased hedge reports reason rounding', roundedOut.reason === 'rounding');
+ok('rounding-erased hedge recommends no stakes',
+  roundedOut.hedges.length === 2 && roundedOut.hedges.every((h) => h.stake === 0));
+near('rounding-erased hedge floor is -stake', roundedOut.floor, -10, 1e-9);
+ok('rounding-erased hedge still implies under 100%', roundedOut.impliedTotal < 1);
+near('rounding-erased hedge locks in nothing', roundedOut.cashOut.hedgeReturn, 0, 1e-9);
+ok('rounding-erased hedge keeps the ideal floor for reference',
+  roundedOut.idealFloor > -10);
+
+// Searching the neighbouring $0.50 points beats rounding each stake alone:
+// $5 at +300 total with hedges at +175 / +180 ideally stakes about
+// [7.27, 7.14]; nearest rounding [7.5, 7] floors at 0.10, but the best
+// neighbour pair reaches 0.25.
+const searched = analyze({
+  stake: 5,
+  totalOdds: 300,
+  legs: [
+    { label: 'A', hedgeAmericanOdds: 175 },
+    { label: 'B', hedgeAmericanOdds: 180 },
+  ],
+});
+const searchedDec = [americanToDecimal(175), americanToDecimal(180)];
+const naiveSearched = worstCase({
+  payout: searched.payout,
+  stake: 5,
+  hedges: [7.2727272727272725, 7.142857142857143].map((s, i) => ({
+    stake: roundStake(s),
+    decimalOdds: searchedDec[i],
+  })),
+});
+near('naive rounding floors at 0.10', naiveSearched, 0.1, 1e-9);
+ok('neighbour search beats naive rounding', searched.floor > naiveSearched + 0.1);
+near('neighbour search floor is 0.25', searched.floor, 0.25, 1e-9);
+ok('neighbour search is still guaranteed', searched.verdict === 'guaranteed');
+
+// The invariant behind it, over a fixed table: never worse than naive
+// rounding, and never worse than sitting out.
+[
+  [5, 300, 175, 125], [5, 300, 175, 220], [10, 1364, 576, -572],
+  [10, 1228, 150, 150], [25, 900, 130, 210], [40, 2000, 110, 300],
+].forEach(([stake, tot, h1, h2], i) => {
+  const r = analyze({
+    stake,
+    totalOdds: tot,
+    legs: [{ label: 'A', hedgeAmericanOdds: h1 }, { label: 'B', hedgeAmericanOdds: h2 }],
+  });
+  const dec = [americanToDecimal(h1), americanToDecimal(h2)];
+  const sol = solveHedge({ payout: r.payout, stake, decimalOdds: dec });
+  const naive = worstCase({
+    payout: r.payout,
+    stake,
+    hedges: sol.stakes.map((s, j) => ({ stake: roundStake(s), decimalOdds: dec[j] })),
+  });
+  ok(`table #${i}: analyze floor is never below naive rounding or sitting out`,
+    r.floor >= Math.max(naive, -stake) - 1e-9);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
