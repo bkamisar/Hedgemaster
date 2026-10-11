@@ -52,7 +52,7 @@ matters:
 |---|---|
 | **Guaranteed profit** | Stake as shown and you profit in every outcome. |
 | **No guarantee, but cuts your downside** | You cannot lock in a profit, but hedging still shrinks the worst case below losing your full stake. |
-| **Don't hedge** | Your hedge prices imply over 100%; no stake improves your worst case. |
+| **Don't hedge** | No hedge helps: your prices imply 100% or more, or the best hedge you can actually place (stakes come in $0.50 steps) is no better than sitting out, or a leg has no line. |
 
 It also reports the price you would need on each leg for a guarantee to
 appear — including the common case of "once this is down to one leg."

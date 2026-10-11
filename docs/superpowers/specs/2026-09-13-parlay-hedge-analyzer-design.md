@@ -495,3 +495,38 @@ so the UI maps blank to `null` explicitly.
 - A mistyped total odds poisons everything; the payout echo is the mitigation.
 - Cash-out offers move by the second during live games; the comparison is only
   as fresh as the number typed in.
+
+## Amendments from the final review (2026-10-10)
+
+Whole-branch review of Addendum 2's implementation found two defects that the
+spec had not anticipated; both are now part of the design.
+
+**Stakes are chosen on the bettable grid, and a hedge that rounding ruins is
+withdrawn.** The $0.50 stake step can push the floor of an otherwise-sound
+hedge to or below `−stake`. Example: $10 at +1364 with hedges at +576 and −572
+implies 99.9% (a hedge exists on paper, ideal worst case −$9.87), yet the
+nearest-rounded stakes give −$10.66 — worse than doing nothing — while the
+app said "hedging cuts your downside". Two rules now apply:
+- Each stake is chosen from the two neighbouring grid points (floor and ceil),
+  taking the combination with the best floor, rather than rounding each stake
+  to nearest independently.
+- If the best achievable floor is still `≤ −stake`, the verdict is `no-hedge`
+  with reason `rounding` and every stake zero. "Cuts your downside" may only be
+  said of a hedge that actually does.
+
+**A blank hedge price is not "no line".** Cash-out comparison compares against
+what hedging locks in, and an unhedgeable or blank leg makes that zero. "Cashing
+out is your only guaranteed exit" is true when a leg genuinely has no line or no
+placeable hedge beats sitting out — but false when the user has simply not typed
+a price yet. In that case the card says to enter the price against every open
+leg and shows no comparison.
+
+Also: the cash-out row reads "Hedge locks in" (not "Hedge, guaranteed", which
+contradicted a "No guarantee" headline: it is a guaranteed *return*, not a
+guaranteed profit); the engine script carries a `?v=` cache-bust so a cached
+engine cannot pair with a newer page; and the "Prices to watch" note is scoped
+"(a projected one, if the assumed legs hit)" under an assumption.
+
+Known cost: the stake search is exponential in the number of open legs and
+slows noticeably around ten or more; not a realistic case for this tool.
+
