@@ -388,3 +388,110 @@ hedge picture for the rest.
   arithmetic downstream is unchanged.
 - A projected guarantee is not a guarantee. The relabelling above is the whole
   mitigation.
+
+---
+
+# Addendum 2: Total-odds input, open legs only, cash-out comparison
+
+**Date:** 2026-10-10
+**Status:** Approved design
+
+## Why
+
+Field report: the payout the app showed didn't match the user's sportsbook.
+
+Investigation found the arithmetic correct for a *standard* parlay — the payout
+is the straight product of each leg's decimal odds (four legs at -110 → +1228,
+the textbook figure), and no commit since it was built had touched it. Book
+rounding conventions explain only a sliver of drift (+1228 vs +1231 on four
+legs at -110).
+
+The real fault is the design assumption that a book prices every parlay as a
+straight product. It doesn't: same-game parlays are priced as a correlated
+whole, well below the product; boosts pay above it; and entering today's line
+for a leg instead of the line it was booked at drifts the product further. The
+app cannot reconstruct the book's price in general, so it stops trying.
+
+The hedge math never needed the individual legs' booked odds anyway — only the
+total payout `R`. The legs' booked odds existed solely to rebuild `R`, which is
+exactly the number that came out wrong. The book states `R` directly.
+
+## Inputs (replaces the per-leg list)
+
+- **Stake.**
+- **Total odds**, American, exactly as the slip shows them — the boosted figure
+  if boosted. `R = S × decimal(total odds)`.
+  - Odds rather than a payout amount on purpose: apps variously show "To Win"
+    (profit) and "Payout" (profit plus stake). A "To Win" figure typed into a
+    payout field understates `R` by exactly the stake and silently skews every
+    number downstream; total odds have no such ambiguity. Integer rounding of
+    the displayed total moves `R` by well under 0.1%.
+- **Cash-out offer** (optional), dollars.
+- **Open legs only** — each: description, odds against it now, line available,
+  and "treat as won (not final)".
+
+Gone: settled legs, every leg's booked odds, the Won/Lost status, and the
+`dead` verdict (a lost leg leaves nothing to analyze). `won` survives only as
+the case where every open leg is treated as won — always shown as "Projected
+win".
+
+The results echo `Payout at +X: $Y — should match your slip`, so a mistyped
+total is visible at a glance rather than silently poisoning the result.
+
+## Engine API
+
+`analyze({ stake, totalOdds, legs, cashOut = null })`, where `legs` holds only
+open legs (`{ label, hedgeAmericanOdds, hedgeable }`).
+
+- `parlayPayout` is deleted — nothing needs a payout rebuilt from legs any more.
+- `legIndex` is deleted from hedges and thresholds. The UI now removes assumed
+  legs before calling `analyze()`, so an index into the array it receives no
+  longer identifies an on-screen row; a field whose name promises that is a
+  trap. Nothing reads it.
+- Invalid total odds throw from `americanToDecimal`, as before; the UI turns
+  that into a plain instruction about the total-odds field, which is now the
+  only place that error can come from (hedge odds are already gated).
+
+## Treat-as-won under the new inputs
+
+Mechanically simpler: an assumed leg is just left out of `legs`. Its odds no
+longer feed the payout — the total odds already include it. Every projected-
+framing rule from the first addendum stands unchanged.
+
+## Cash-out comparison
+
+Both sides are amounts locked in **from here**, with the stake already spent,
+so the comparison needs no probabilities and stays within the app's rule
+against predicting outcomes:
+
+- **Hedge:** `hedgeReturn = floor + stake`, using the floor on the *rounded*
+  recommended stakes. This is zero when no hedge helps (`floor = −stake`).
+- **Edge:** `hedgeReturn − offer`. Positive → hedging locks in more; negative →
+  cashing out does.
+
+Presentation:
+
+| Situation | Message |
+|---|---|
+| `hedgeReturn` is 0 | Hedging can't lock anything in; cashing out is the only guaranteed exit. |
+| `|edge|` < half a cent | About even. |
+| `edge > 0` | Hedging locks in `$edge` more — and pays beyond that if two or more hedged legs miss (only said when 2+ hedges are placed). |
+| `edge < 0` | Cashing out locks in `$|edge|` more than the best hedge. |
+
+Always stated alongside: hedging means placing every recommended bet at the
+quoted prices before they move, while cashing out is one tap — so a thin edge
+for hedging may not be worth it. The app states the numbers; it doesn't decide.
+
+**Suppressed while any leg is treated as won.** The offer is priced on the real
+bet, including the chance the assumed legs miss; the projected hedge is not.
+Setting one against the other would flatter hedging. If an offer was entered,
+the card says why the comparison is off instead.
+
+A blank cash-out field means *no offer*, not a $0 offer — `Number('')` is `0`,
+so the UI maps blank to `null` explicitly.
+
+## Limitations
+
+- A mistyped total odds poisons everything; the payout echo is the mitigation.
+- Cash-out offers move by the second during live games; the comparison is only
+  as fresh as the number typed in.
