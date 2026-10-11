@@ -29,7 +29,7 @@ number that matches what you'll actually be paid.
 Every open leg has a **"Treat as won (not final)"** checkbox. Tick it for a leg
 you're confident in but that hasn't formally settled — a three-score lead late
 in the fourth — and the analysis proceeds as if it had already won: it stops
-asking you for a hedge price and drops out of the outcome table.
+asking you for a hedge price and drops out of the "What happens in each case" table.
 
 Unticking restores everything, including any hedge odds you'd typed.
 
@@ -45,13 +45,14 @@ win.
 
 ## What it tells you
 
-There are three possible answers, and the difference between the last two
+There are four possible answers, and the difference between the middle two
 matters:
 
 | Headline | Meaning |
 |---|---|
 | **You can lock in at least $X** | Place the hedge bets as shown and you profit in every outcome. |
 | **Hedging can't guarantee a profit, but it can limit your loss** | You cannot lock in a profit, but hedging still shrinks the worst case below losing your full stake. |
+| **Add the odds on the other side to see your options** | You haven't entered a usable price for every open leg yet, so nothing can be concluded. |
 | **Hedging won't help here** | No hedge helps: your prices imply 100% or more, or the best hedge you can actually place (stakes come in $0.50 steps) is no better than sitting out, or a leg has no line. |
 
 The app only lays out options; it never tells you to bet. When legs are treated
@@ -62,11 +63,12 @@ odds, stake), and **What happens in each case** shows the result of every
 combination of legs losing, as profit or loss against your original stake.
 
 It also reports the price you would need on each leg for a guarantee to
-appear — including the common case of "once this is down to one leg."
+appear — including the common case of one leg left: the **What would make hedging worth it**
+card's "If it were your last open leg" column.
 
 ### Your options right now
 
-Once you have results, a **Your options right now** table sets the choices side
+When no leg is treated as won, a **Your options right now** table sets the choices side
 by side, all as profit or loss against your original stake:
 
 - **Let it ride** — the profit if every leg hits, or the loss of your stake if
@@ -81,7 +83,7 @@ no guessing about outcomes is involved: it tells you which locks in more, and
 by how much. When no hedge can guarantee anything, cashing out is your only
 guaranteed exit, and it says so.
 
-Hedging means placing every recommended bet at the quoted prices before they
+Hedging means placing every hedge bet at the quoted prices before they
 move; cashing out is one tap. A thin edge for hedging may not be worth it.
 
 The options table is switched off while any leg is treated as won: the cash-out
