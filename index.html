@@ -259,6 +259,15 @@ function render(result, legs, assumed = [], ctx = {}) {
   // all hedge stakes -- typically far worse than the floor shown, and worse
   // than not hedging at all. No copy below may imply otherwise.
   const assumedMissWorst = -(result.stake + result.totalHedgeStake);
+  // A blank hedge-price field also makes analyze() report 'unhedgeable' with
+  // nothing locked in, but that is "not typed yet", not "can't be hedged" --
+  // claiming cashing out is the only exit, or that there is no line, would be
+  // unfounded. Only an explicit "No line" leg establishes that.
+  const blankOnly = result.reason === 'unhedgeable'
+    && legs.some((l) => l.hedgeable !== false
+      && !(Number.isFinite(l.hedgeAmericanOdds) && Math.abs(l.hedgeAmericanOdds) >= 100))
+    && !legs.some((l) => l.hedgeable === false);
+
   // Under an assumption every headline is prefixed "Projected: " and its first
   // letter lower-cased; the won case has its own wording.
   const proj = (s) => 'Projected: ' + s.charAt(0).toLowerCase() + s.slice(1);
@@ -273,10 +282,10 @@ function render(result, legs, assumed = [], ctx = {}) {
         'Hedging can\'t guarantee a profit, but it can limit your loss'),
       'warn',
     ],
-    'no-hedge': [
-      (projected ? proj : (s) => s)('Hedging won\'t help here'),
-      'bad',
-    ],
+    'no-hedge': blankOnly
+      ? [(projected ? proj : (s) => s)(
+          'Add the odds on the other side to see your options'), 'warn']
+      : [(projected ? proj : (s) => s)('Hedging won\'t help here'), 'bad'],
     won: [
       projected
         ? `Projected win: ${money(result.floor)} profit.`
@@ -284,15 +293,6 @@ function render(result, legs, assumed = [], ctx = {}) {
       'good',
     ],
   }[result.verdict];
-
-  // A blank hedge-price field also makes analyze() report 'unhedgeable' with
-  // nothing locked in, but that is "not typed yet", not "can't be hedged" --
-  // claiming cashing out is the only exit, or that there is no line, would be
-  // unfounded. Only an explicit "No line" leg establishes that.
-  const blankOnly = result.reason === 'unhedgeable'
-    && legs.some((l) => l.hedgeable !== false
-      && !(Number.isFinite(l.hedgeAmericanOdds) && Math.abs(l.hedgeAmericanOdds) >= 100))
-    && !legs.some((l) => l.hedgeable === false);
 
   let html = `<div class="card">
     <div class="verdict ${headline[1]}">${headline[0]}</div>
@@ -362,10 +362,13 @@ function render(result, legs, assumed = [], ctx = {}) {
   if (!projected && result.verdict !== 'won') {
     // Every figure is profit/loss against the original stake, so the three
     // options are directly comparable.
+    // A negative locked-in amount reads as a loss, not "-$X locked in".
+    const lockedIn = (x) => (x < 0
+      ? `a ${money(-x)} loss, locked in` : `${signed(x)} locked in`);
     let hedgeCell;
     if (hasHedge) {
       const placed = result.hedges.filter((h) => h.stake > 0).length;
-      hedgeCell = `${signed(result.floor)} locked in${placed >= 2
+      hedgeCell = `${lockedIn(result.floor)}${placed >= 2
         ? ' (more if two or more of these legs lose)' : ''}`;
     } else if (blankOnly) {
       hedgeCell = 'Enter the odds on the other side of every open leg to see this';
@@ -377,8 +380,7 @@ function render(result, legs, assumed = [], ctx = {}) {
         <tr><td>Let it ride</td><td class="num">${signed(result.payout - result.stake)}
           if every leg hits; ${signed(-result.stake)} if any leg loses</td></tr>`;
     if (result.cashOut) {
-      html += `<tr><td>Cash out now</td><td class="num">${signed(result.cashOut.offer - result.stake)}
-          locked in</td></tr>`;
+      html += `<tr><td>Cash out now</td><td class="num">${lockedIn(result.cashOut.offer - result.stake)}</td></tr>`;
     }
     html += `<tr><td>Hedge</td><td class="num">${hedgeCell}</td></tr>
       </table>`;
@@ -475,9 +477,12 @@ function render(result, legs, assumed = [], ctx = {}) {
       html += `<tr><td>${esc(t.label)}</td><td class="num">${now}</td>
         <td class="num">${last}</td></tr>`;
     });
-    html += `</table><div class="note">"If it were your last open leg" assumes your
-      other open legs hit first — usually when a real guarantee appears${projected
-        ? ' (a projected one, if the assumed legs hit)' : ''}.</div></div>`;
+    html += `</table><div class="note">${projected
+      ? `"If it were your last open leg" assumes your other open legs hit first.
+         Under your assumption, reaching that price would give a projected
+         guarantee — it only holds if the assumed legs hit.`
+      : `"If it were your last open leg" assumes your other open legs hit first
+         — usually when a real guarantee appears.`}</div></div>`;
   }
 
   box.innerHTML = html;
