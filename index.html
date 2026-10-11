@@ -231,8 +231,11 @@ document.getElementById('slipNo').textContent =
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[c]));
-const money = (n) => (n < 0 ? '-$' : '$') + Math.abs(n).toFixed(2);
-const signed = (n) => (n < 0 ? '-$' : '+$') + Math.abs(n).toFixed(2);
+// Round to cents before any sign test so float residue (-1e-15) never
+// prints as "-$0.00" or counts as a loss.
+const cents = (n) => Math.round(n * 100) / 100;
+const money = (n) => (cents(n) < 0 ? '-$' : '$') + Math.abs(n).toFixed(2);
+const signed = (n) => (cents(n) < 0 ? '-$' : '+$') + Math.abs(n).toFixed(2);
 const american = (n) => (n > 0 ? '+' : '') + n;
 
 function readLegs() {
@@ -278,8 +281,9 @@ function render(result, legs, assumed = [], ctx = {}) {
       'good',
     ],
     'reduces-downside': [
-      (projected ? proj : (s) => s)(
-        'Hedging can\'t guarantee a profit, but it can limit your loss'),
+      projected
+        ? 'Projected: if the assumed legs hit, hedging can\'t guarantee a profit but can limit your loss'
+        : 'Hedging can\'t guarantee a profit, but it can limit your loss',
       'warn',
     ],
     'no-hedge': blankOnly
@@ -339,8 +343,8 @@ function render(result, legs, assumed = [], ctx = {}) {
       .map((l) => {
         const validOdds =
           Number.isFinite(l.hedgeAmericanOdds) && Math.abs(l.hedgeAmericanOdds) >= 100;
-        if (l.hedgeable === false) return `${esc(l.label)}: no line available`;
-        if (!validOdds) return `${esc(l.label)}: enter odds, or mark it unavailable`;
+        if (l.hedgeable === false) return `${esc(l.label)}: you marked it No line`;
+        if (!validOdds) return `${esc(l.label)}: enter the odds on the other side, or set "Can you bet the other side?" to No line`;
         return null;
       })
       .filter(Boolean);
@@ -363,13 +367,16 @@ function render(result, legs, assumed = [], ctx = {}) {
     // Every figure is profit/loss against the original stake, so the three
     // options are directly comparable.
     // A negative locked-in amount reads as a loss, not "-$X locked in".
-    const lockedIn = (x) => (x < 0
+    const lockedIn = (x) => (cents(x) < 0
       ? `a ${money(-x)} loss, locked in` : `${signed(x)} locked in`);
     let hedgeCell;
     if (hasHedge) {
       const placed = result.hedges.filter((h) => h.stake > 0).length;
+      // "more" would read as a bigger loss when the locked-in figure is a loss.
       hedgeCell = `${lockedIn(result.floor)}${placed >= 2
-        ? ' (more if two or more of these legs lose)' : ''}`;
+        ? (cents(result.floor) < 0
+          ? ' (better if two or more of these legs lose)'
+          : ' (more if two or more of these legs lose)') : ''}`;
     } else if (blankOnly) {
       hedgeCell = 'Enter the odds on the other side of every open leg to see this';
     } else {
@@ -448,7 +455,7 @@ function render(result, legs, assumed = [], ctx = {}) {
         : s.missing.length === 1
           ? `${esc(s.missing[0])} loses`
           : `${joinLabels(s.missing)} lose`;
-      const cls = s.profit >= 0 ? 'good' : 'bad';
+      const cls = cents(s.profit) >= 0 ? 'good' : 'bad';
       html += `<tr><td>${who}</td>
         <td class="num ${cls}">${signed(s.profit)}</td></tr>`;
     });
@@ -459,14 +466,16 @@ function render(result, legs, assumed = [], ctx = {}) {
         <td class="num bad">${signed(assumedMissWorst)}</td></tr>`;
     }
     html += `</table><div class="note">Profit or loss compared with your original
-      ${money(result.stake)} stake.</div></div>`;
+      ${money(result.stake)} stake${hasHedge
+        ? ', if you place all the hedge bets above' : ''}.</div></div>`;
   }
 
   if (result.thresholds.length) {
     html += `<div class="card"><strong>What would make hedging worth it</strong>
       <div class="note">The odds you'd need to see on the other side of each leg
         for hedging to lock in a profit. Compare them with what your book
-        shows.</div>
+        shows. "Impossible" means no price on that leg could work, given the
+        other legs' prices.</div>
       <table>
       <tr><th>Leg</th><th class="num">Needed now</th><th class="num">If it were your last open leg</th></tr>`;
     result.thresholds.forEach((t) => {
