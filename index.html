@@ -171,7 +171,8 @@
 
 <div id="results" class="hidden"></div>
 
-<script src="hedge-engine.js"></script>
+<!-- bump ?v= whenever hedge-engine.js's analyze() contract changes, so cached copies can't pair with a newer page -->
+<script src="hedge-engine.js?v=2"></script>
 <script>
 const legsEl = document.getElementById('legs');
 
@@ -320,6 +321,11 @@ function render(result, legs, assumed = [], ctx = {}) {
       })
       .filter(Boolean);
     html += `<div class="note">Can't hedge yet:<br>${issues.join('<br>')}</div>`;
+  } else if (result.verdict === 'no-hedge' && result.reason === 'rounding') {
+    html += `<div class="note">On paper these prices leave room for a hedge
+      (they imply ${(result.impliedTotal * 100).toFixed(1)}%), but at stakes you
+      can actually place ($0.50 steps) the best hedge is no better than sitting
+      out.</div>`;
   } else if (result.verdict === 'no-hedge') {
     html += `<div class="note">Your hedge prices imply
       ${(result.impliedTotal * 100).toFixed(1)}% — above 100%, so no stake
@@ -327,7 +333,19 @@ function render(result, legs, assumed = [], ctx = {}) {
   }
   html += `</div>`;
 
-  if (result.cashOut) {
+  // A blank hedge-price field also makes analyze() report 'unhedgeable' with
+  // nothing locked in, but that is "not typed yet", not "can't be hedged" --
+  // claiming cashing out is the only exit would be unfounded. Only an explicit
+  // "No line" leg establishes that.
+  const blankOnly = result.reason === 'unhedgeable'
+    && legs.some((l) => l.hedgeable !== false
+      && !(Number.isFinite(l.hedgeAmericanOdds) && Math.abs(l.hedgeAmericanOdds) >= 100))
+    && !legs.some((l) => l.hedgeable === false);
+
+  if (result.cashOut && blankOnly) {
+    html += `<div class="card"><strong>Cash out or hedge?</strong>
+      <div class="note">Enter the price against every open leg to compare.</div></div>`;
+  } else if (result.cashOut) {
     const { offer, hedgeReturn, edge } = result.cashOut;
     const placed = result.hedges.filter((h) => h.stake > 0).length;
     let line;
@@ -350,7 +368,7 @@ function render(result, legs, assumed = [], ctx = {}) {
     html += `<div class="card"><strong>Cash out or hedge?</strong>
       <table>
         <tr><td>Cash out now</td><td class="num">${money(offer)}</td></tr>
-        <tr><td>Hedge, guaranteed</td><td class="num">${money(hedgeReturn)}</td></tr>
+        <tr><td>Hedge locks in</td><td class="num">${money(hedgeReturn)}</td></tr>
       </table>
       <div class="note">${line} Both are what you walk away with from
         here.${friction}</div></div>`;
@@ -417,7 +435,8 @@ function render(result, legs, assumed = [], ctx = {}) {
         <td class="num">${last}</td></tr>`;
     });
     html += `</table><div class="note">"If last leg" assumes the other
-      undecided legs hit first — usually the moment a guarantee appears.</div></div>`;
+      undecided legs hit first — usually the moment a guarantee appears${projected
+        ? ' (a projected one, if the assumed legs hit)' : ''}.</div></div>`;
   }
 
   box.innerHTML = html;
