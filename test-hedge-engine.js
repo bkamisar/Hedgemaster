@@ -1,7 +1,6 @@
 const {
   americanToDecimal,
   decimalToAmerican,
-  parlayPayout,
   enumerateScenarios,
   scenarioProfit,
   worstCase,
@@ -54,17 +53,6 @@ near('round-trip -325', decimalToAmerican(americanToDecimal(-325)), -325);
 throws('rejects +50', () => americanToDecimal(50));
 throws('rejects 0', () => americanToDecimal(0));
 throws('rejects decimal 1.0', () => decimalToAmerican(1));
-
-// --- Task 2: parlay payout ---
-const fourLegs = [
-  { americanOdds: -110 },
-  { americanOdds: -110 },
-  { americanOdds: -110 },
-  { americanOdds: -110 },
-];
-near('4x -110 on $10 pays 132.83', parlayPayout(10, fourLegs), 132.8331, 1e-3);
-near('single leg +150 on $20 pays 50', parlayPayout(20, [{ americanOdds: 150 }]), 50);
-near('empty parlay returns stake', parlayPayout(10, []), 10);
 
 // --- Task 3: scenarios ---
 ok('enumerate k=0 gives one empty scenario',
@@ -224,7 +212,7 @@ near('oracle finds asymmetric stake 25 on the 4.0 leg', oracleAsym.stakes[0], 25
 near('oracle finds asymmetric stake 40 on the 2.5 leg', oracleAsym.stakes[1], 40, 0.02);
 
 // --- Task 5: closed-form solver ---
-const R4 = parlayPayout(10, fourLegs); // 132.8331...
+const R4 = 10 * (1 + 100 / 110) ** 4; // $10 on four -110 legs: 132.8331...
 
 // Two live legs at +150 on the hedge side: the spec's worked example.
 const plus150 = solveHedge({ payout: R4, stake: 10, decimalOdds: [2.5, 2.5] });
@@ -326,18 +314,19 @@ const justOver = withSibling + 0.05;
 const rescued = solveHedge({ payout: R4, stake: 10, decimalOdds: [justOver, c110] });
 ok('beating the threshold produces a guarantee', rescued.floor > 0);
 
-// --- Task 8: analyze() ---
-const legsWonWonLiveLive = [
-  { label: 'Chiefs ML', americanOdds: -110, status: 'won' },
-  { label: 'Over 44.5', americanOdds: -110, status: 'won' },
-  { label: 'Bills ML', americanOdds: -110, status: 'live', hedgeAmericanOdds: 150 },
-  { label: 'Eagles ML', americanOdds: -110, status: 'live', hedgeAmericanOdds: 150 },
+// --- analyze(): total odds in, open legs only, cash-out comparison ---
+const twoOpen = (hedge) => [
+  { label: 'Bills ML', hedgeAmericanOdds: hedge },
+  { label: 'Eagles ML', hedgeAmericanOdds: hedge },
 ];
-const guaranteed = analyze({ stake: 10, legs: legsWonWonLiveLive });
+
+// The payout comes straight from the slip's total odds, however the book
+// priced the individual legs: $10 at +1228 pays $132.80.
+const guaranteed = analyze({ stake: 10, totalOdds: 1228, legs: twoOpen(150) });
 ok('verdict is guaranteed', guaranteed.verdict === 'guaranteed');
-near('payout is 132.83', guaranteed.payout, 132.8331, 1e-3);
-ok('floor is positive', guaranteed.floor > 0);
-ok('one hedge per live leg', guaranteed.hedges.length === 2);
+near('payout is stake times total odds', guaranteed.payout, 132.8, 1e-9);
+near('floor is computed on the rounded stakes', guaranteed.floor, 16.5, 1e-9);
+ok('one hedge per open leg', guaranteed.hedges.length === 2);
 near('hedge stake rounds to 53', guaranteed.hedges[0].stake, 53, 1e-9);
 ok('hedge odds echoed as American', guaranteed.hedges[0].americanOdds === 150);
 ok('scenario table covers 2^k rows', guaranteed.scenarios.length === 4);
@@ -346,104 +335,91 @@ ok('every scenario meets the floor',
 ok('profitFromHere is profit plus stake',
   Math.abs(guaranteed.scenarios[0].profitFromHere
     - (guaranteed.scenarios[0].profit + 10)) < 1e-9);
+ok('threshold per open leg', guaranteed.thresholds.length === 2);
+ok('down-to-one threshold present',
+  typeof guaranteed.thresholds[0].downToOneAmerican === 'number');
+ok('no cash-out comparison without an offer', guaranteed.cashOut === null);
 
-// Same parlay, -110 hedge prices: above 100%, so do not hedge.
-const noHedgeLegs = legsWonWonLiveLive.map((leg) =>
-  leg.status === 'live' ? { ...leg, hedgeAmericanOdds: -110 } : leg
-);
-const noHedge = analyze({ stake: 10, legs: noHedgeLegs });
+// Hedge prices implying over 100%: no stake improves the worst case.
+const noHedge = analyze({ stake: 10, totalOdds: 1228, legs: twoOpen(-110) });
 ok('verdict is no-hedge', noHedge.verdict === 'no-hedge');
 ok('no stakes recommended', noHedge.hedges.every((h) => h.stake === 0));
 near('floor is -stake', noHedge.floor, -10, 1e-9);
 ok('implied total is reported above 1', noHedge.impliedTotal > 1);
 
-// Middle regime: two legs at -200 on a $40 stake -> payout 90. One live leg
-// hedged at -400 (decimal 1.25) -> A = 0.8, floor 90*0.2 - 40 = -22, which
-// is no profit but beats the -40 of doing nothing.
-const middleLegs = [
-  { label: 'Leg A', americanOdds: -200, status: 'won' },
-  { label: 'Leg B', americanOdds: -200, status: 'live', hedgeAmericanOdds: -400 },
-];
-const reduces = analyze({ stake: 40, legs: middleLegs });
+// Middle regime: $40 at +125 pays $90; one open leg, hedged at -400
+// (decimal 1.25) -> A = 0.8, floor 90*0.2 - 40 = -22. No profit, but
+// better than the -40 of doing nothing.
+const reduces = analyze({
+  stake: 40,
+  totalOdds: 125,
+  legs: [{ label: 'Leg B', hedgeAmericanOdds: -400 }],
+});
 ok('verdict is reduces-downside', reduces.verdict === 'reduces-downside');
 ok('still recommends a stake', reduces.hedges[0].stake > 0);
-ok('floor beats not hedging', reduces.floor > -40);
-ok('floor is not a profit', reduces.floor <= 0);
 near('middle regime floor is -22', reduces.floor, -22, 1e-9);
+ok('floor beats not hedging', reduces.floor > -40);
 
-// Thresholds are reported for every live leg.
-ok('threshold per live leg', guaranteed.thresholds.length === 2);
-ok('down-to-one threshold present',
-  typeof guaranteed.thresholds[0].downToOneAmerican === 'number');
-
-// Degenerate: a lost leg kills the parlay.
-const deadLegs = [
-  { label: 'Leg A', americanOdds: -110, status: 'lost' },
-  { label: 'Leg B', americanOdds: -110, status: 'live', hedgeAmericanOdds: 150 },
-];
-const dead = analyze({ stake: 10, legs: deadLegs });
-ok('verdict is dead', dead.verdict === 'dead');
-near('dead floor is -stake', dead.floor, -10, 1e-9);
-ok('dead recommends no hedges', dead.hedges.length === 0);
-
-// Degenerate: everything already won.
-const wonAll = analyze({
-  stake: 10,
-  legs: [{ label: 'Leg A', americanOdds: 150, status: 'won' }],
-});
+// No open legs left -- only reachable when the UI treats every leg as won.
+const wonAll = analyze({ stake: 10, totalOdds: 150, legs: [] });
 ok('verdict is won', wonAll.verdict === 'won');
 near('won floor is payout - stake', wonAll.floor, 15, 1e-9);
 
-// Degenerate: an unhedgeable live leg makes any hedging strictly worse.
-const unhedgeableLegs = [
-  { label: 'Leg A', americanOdds: 150, status: 'live', hedgeAmericanOdds: 150 },
-  { label: 'Leg B', americanOdds: 150, status: 'live', hedgeable: false },
-];
-const unhedgeable = analyze({ stake: 10, legs: unhedgeableLegs });
+// A leg with no line, or a blank hedge-odds field, cannot be hedged.
+const unhedgeable = analyze({
+  stake: 10,
+  totalOdds: 500,
+  legs: [
+    { label: 'Leg A', hedgeAmericanOdds: 150 },
+    { label: 'Leg B', hedgeable: false },
+  ],
+});
 ok('unhedgeable leg forces no-hedge', unhedgeable.verdict === 'no-hedge');
 ok('unhedgeable reason is reported', unhedgeable.reason === 'unhedgeable');
 near('unhedgeable floor is -stake', unhedgeable.floor, -10, 1e-9);
 
-// Degenerate: a single-leg "parlay" still works.
-const singleLeg = analyze({
+const blankOdds = analyze({
   stake: 10,
-  legs: [{ label: 'Leg A', americanOdds: 900, status: 'live', hedgeAmericanOdds: -200 }],
+  totalOdds: 500,
+  legs: [
+    { label: 'Leg A', hedgeAmericanOdds: 150 },
+    { label: 'Leg B', hedgeAmericanOdds: Number('') },
+  ],
 });
-ok('single-leg parlay is guaranteed', singleLeg.verdict === 'guaranteed');
-ok('single-leg has one hedge', singleLeg.hedges.length === 1);
-
-// A live leg with no explicit hedgeable:false but a blank/invalid hedge-odds
-// field (as a UI text input would parse an empty string to Number('') === 0)
-// must get the same clean no-hedge verdict as the explicit case, not an
-// uncaught throw from americanToDecimal.
-const blankOddsLegs = [
-  { label: 'Leg A', americanOdds: 150, status: 'live', hedgeAmericanOdds: 150 },
-  { label: 'Leg B', americanOdds: 150, status: 'live', hedgeAmericanOdds: Number('') },
-];
-const blankOdds = analyze({ stake: 10, legs: blankOddsLegs });
 ok('blank hedge odds forces no-hedge, not a throw', blankOdds.verdict === 'no-hedge');
 ok('blank hedge odds reason is unhedgeable', blankOdds.reason === 'unhedgeable');
-near('blank hedge odds floor is -stake', blankOdds.floor, -10, 1e-9);
 
-// legIndex must map back to the ORIGINAL legs array position, not the
-// position within the filtered live-legs list -- test with live legs that
-// are NOT contiguous (won, live, won, live) so a bug that used the live-array
-// loop index instead of the original index would actually be caught.
-const interleavedLegs = [
-  { label: 'Leg 0 (won)', americanOdds: -110, status: 'won' },
-  { label: 'Leg 1 (live)', americanOdds: -110, status: 'live', hedgeAmericanOdds: 150 },
-  { label: 'Leg 2 (won)', americanOdds: -110, status: 'won' },
-  { label: 'Leg 3 (live)', americanOdds: -110, status: 'live', hedgeAmericanOdds: 150 },
-];
-const interleaved = analyze({ stake: 10, legs: interleavedLegs });
-ok('legIndex on hedges matches original position (1, not 0)',
-  interleaved.hedges[0].legIndex === 1);
-ok('legIndex on hedges matches original position (3, not 1)',
-  interleaved.hedges[1].legIndex === 3);
-ok('legIndex on thresholds matches original position (1, not 0)',
-  interleaved.thresholds[0].legIndex === 1);
-ok('legIndex on thresholds matches original position (3, not 1)',
-  interleaved.thresholds[1].legIndex === 3);
+// One open leg left.
+const singleLeg = analyze({
+  stake: 10,
+  totalOdds: 900,
+  legs: [{ label: 'Leg A', hedgeAmericanOdds: -200 }],
+});
+ok('single open leg is guaranteed', singleLeg.verdict === 'guaranteed');
+near('single open leg floor is 23.25', singleLeg.floor, 23.25, 1e-9);
+
+// Bad total odds must fail loudly rather than produce a nonsense payout.
+throws('invalid total odds throws',
+  () => analyze({ stake: 10, totalOdds: 0, legs: twoOpen(150) }));
+
+// Cash-out: hedging locks in floor + stake "from here"; the offer is
+// compared against that directly, with no probabilities involved.
+const hedgeWins = analyze({ stake: 10, totalOdds: 1228, legs: twoOpen(150), cashOut: 25 });
+near('hedge return is floor plus stake', hedgeWins.cashOut.hedgeReturn, 26.5, 1e-9);
+near('positive edge means hedging locks in more', hedgeWins.cashOut.edge, 1.5, 1e-9);
+near('offer is echoed back', hedgeWins.cashOut.offer, 25, 1e-9);
+
+const cashWins = analyze({
+  stake: 40,
+  totalOdds: 125,
+  legs: [{ label: 'Leg B', hedgeAmericanOdds: -400 }],
+  cashOut: 30,
+});
+near('cash-out can beat the best hedge', cashWins.cashOut.edge, -12, 1e-9);
+
+const onlyExit = analyze({ stake: 10, totalOdds: 1228, legs: twoOpen(-110), cashOut: 25 });
+near('with no useful hedge, hedging locks in nothing', onlyExit.cashOut.hedgeReturn, 0, 1e-9);
+near('so the whole offer is the edge to cash out', onlyExit.cashOut.edge, -25, 1e-9);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

@@ -14,14 +14,6 @@ function decimalToAmerican(decimal) {
   return d >= 2 ? Math.round((d - 1) * 100) : Math.round(-100 / (d - 1));
 }
 
-function parlayPayout(stake, legs) {
-  const combined = legs.reduce(
-    (acc, leg) => acc * americanToDecimal(leg.americanOdds),
-    1
-  );
-  return stake * combined;
-}
-
 function enumerateScenarios(k) {
   const scenarios = [];
   for (let mask = 0; mask < 1 << k; mask++) {
@@ -81,11 +73,23 @@ function hedgeThreshold({ payout, stake, otherDecimalOdds }) {
   return 1 / budget;
 }
 
-function analyze({ stake, legs }) {
-  const payout = parlayPayout(stake, legs);
-  const live = legs
-    .map((leg, index) => ({ ...leg, index }))
-    .filter((leg) => leg.status === 'live');
+// Both amounts here are locked in "from here" (the original stake already
+// spent), so the comparison needs no probabilities: hedging guarantees the
+// floor plus the stake back -- zero when no hedge helps. A positive edge
+// means hedging locks in more than taking the offer.
+function compareCashOut(result, offer) {
+  if (offer === null || offer === undefined) return null;
+  const hedgeReturn = result.floor + result.stake;
+  return { offer, hedgeReturn, edge: hedgeReturn - offer };
+}
+
+// The payout comes from the slip's stated total odds, not from multiplying
+// per-leg odds: books don't price every parlay as a straight product
+// (same-game parlays are priced below it, boosts above), so the book's own
+// total is the only number that matches what will actually be paid.
+// `legs` holds only the legs still to be decided.
+function analyze({ stake, totalOdds, legs, cashOut = null }) {
+  const payout = stake * americanToDecimal(totalOdds);
 
   const base = {
     payout,
@@ -97,23 +101,20 @@ function analyze({ stake, legs }) {
     totalHedgeStake: 0,
     reason: null,
   };
+  const finish = (result) => ({ ...result, cashOut: compareCashOut(result, cashOut) });
 
-  if (legs.some((leg) => leg.status === 'lost')) {
-    return { ...base, verdict: 'dead', floor: -stake, idealFloor: -stake };
-  }
-
-  if (live.length === 0) {
-    return {
+  if (legs.length === 0) {
+    return finish({
       ...base,
       verdict: 'won',
       floor: payout - stake,
       idealFloor: payout - stake,
-    };
+    });
   }
 
   // A leg that cannot be hedged leaves a scenario where it alone misses and
   // every other hedge stake is simply lost, so any hedging lowers the floor.
-  // This includes both an explicit hedgeable:false flag AND a live leg whose
+  // This includes both an explicit hedgeable:false flag AND a leg whose
   // hedgeAmericanOdds isn't valid (e.g. a blank UI field parsed to 0 or NaN)
   // -- americanToDecimal would throw on either, and a user leaving a field
   // blank is a far more likely path through this code than an explicit
@@ -122,27 +123,25 @@ function analyze({ stake, legs }) {
   const hasValidHedgeOdds = (odds) =>
     Number.isFinite(odds) && Math.abs(odds) >= 100;
 
-  if (live.some((leg) => leg.hedgeable === false || !hasValidHedgeOdds(leg.hedgeAmericanOdds))) {
-    return {
+  if (legs.some((leg) => leg.hedgeable === false || !hasValidHedgeOdds(leg.hedgeAmericanOdds))) {
+    return finish({
       ...base,
       verdict: 'no-hedge',
       reason: 'unhedgeable',
       floor: -stake,
       idealFloor: -stake,
-      hedges: live.map((leg) => ({
-        legIndex: leg.index,
+      hedges: legs.map((leg) => ({
         label: leg.label,
         stake: 0,
         americanOdds: hasValidHedgeOdds(leg.hedgeAmericanOdds) ? leg.hedgeAmericanOdds : null,
       })),
-    };
+    });
   }
 
-  const decimalOdds = live.map((leg) => americanToDecimal(leg.hedgeAmericanOdds));
+  const decimalOdds = legs.map((leg) => americanToDecimal(leg.hedgeAmericanOdds));
   const solved = solveHedge({ payout, stake, decimalOdds });
 
-  const hedges = live.map((leg, i) => ({
-    legIndex: leg.index,
+  const hedges = legs.map((leg, i) => ({
     label: leg.label,
     stake: roundStake(solved.stakes[i]),
     americanOdds: leg.hedgeAmericanOdds,
@@ -154,21 +153,20 @@ function analyze({ stake, legs }) {
   }));
   const floor = worstCase({ payout, stake, hedges: priced });
 
-  const scenarios = enumerateScenarios(live.length).map((missing) => {
+  const scenarios = enumerateScenarios(legs.length).map((missing) => {
     const profit = scenarioProfit({ payout, stake, hedges: priced, missing });
     return {
-      missing: live.filter((_, i) => missing[i]).map((leg) => leg.label),
+      missing: legs.filter((_, i) => missing[i]).map((leg) => leg.label),
       profit,
       profitFromHere: profit + stake,
     };
   });
 
-  const thresholds = live.map((leg, i) => {
+  const thresholds = legs.map((leg, i) => {
     const others = decimalOdds.filter((_, j) => j !== i);
     const now = hedgeThreshold({ payout, stake, otherDecimalOdds: others });
     const downToOne = hedgeThreshold({ payout, stake, otherDecimalOdds: [] });
     return {
-      legIndex: leg.index,
       label: leg.label,
       requiredAmerican: now === null ? null : decimalToAmerican(now),
       downToOneAmerican: downToOne === null ? null : decimalToAmerican(downToOne),
@@ -191,7 +189,7 @@ function analyze({ stake, legs }) {
     verdict = 'reduces-downside';
   }
 
-  return {
+  return finish({
     ...base,
     verdict,
     impliedTotal: solved.impliedTotal,
@@ -201,20 +199,20 @@ function analyze({ stake, legs }) {
     totalHedgeStake: hedges.reduce((sum, h) => sum + h.stake, 0),
     scenarios,
     thresholds,
-  };
+  });
 }
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     americanToDecimal,
     decimalToAmerican,
-    parlayPayout,
     enumerateScenarios,
     scenarioProfit,
     worstCase,
     solveHedge,
     roundStake,
     hedgeThreshold,
+    compareCashOut,
     analyze,
   };
 }
